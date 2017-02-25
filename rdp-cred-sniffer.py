@@ -708,7 +708,11 @@ def open_sockets():
     local_conn, addr = local_socket.accept()
     print("Connection received from " + addr[0])
 
-    #  print(original_dest(local_conn))
+    #  try:
+    #  print("Original destination: " + original_dest(local_conn))
+    #  except OSError:
+        #  print
+        #  pass
 
     remote_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     remote_socket.connect((args.target_host, args.target_port))
