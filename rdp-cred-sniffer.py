@@ -275,7 +275,7 @@ def decrypt(bytes, From="Client"):
         if bytes[offset] >= 0x80: offset += 1
         offset += 1
         security_flags = struct.unpack('<H', bytes[offset:offset+2])[0]
-        is_encrypted = (security_flags & 0x0008)# and not security_flags & 0x0080)
+        is_encrypted = (security_flags & 0x0008)
         if is_encrypted:
             offset += 12
             cleartext = rc4_decrypt(bytes[offset:], From=From)
@@ -286,8 +286,7 @@ def decrypt(bytes, From="Client"):
         if args.debug:
             print("Cleartext: ")
             hexdump(cleartext)
-        # Removing security header and MAC
-        return bytes[:offset-12] + cleartext
+        return bytes[:offset] + cleartext
     else:
         return bytes
 
@@ -516,7 +515,7 @@ def parse_rdp_packet(bytes, From="Client"):
 
 
     if len(bytes)>3 and bytes[2] in [b"\x00", b"\x01"]:
-        result = str(bytes[3]).encode()
+        result = extract_key_press(bytes)
 
     #  keymap_regex = b".*en-us.*" # TODO find keymap definition
     #  (CLIENT_CORE_DATA)
