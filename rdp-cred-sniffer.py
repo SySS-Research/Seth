@@ -94,6 +94,7 @@ class RC4(object):
         print("Updating session keys...")
         pad1 = b"\x36"*40
         pad2 = b"\x5c"*48
+        # TODO
 
 def substr(s, offset, count):
     return s[offset:offset+count]
@@ -253,6 +254,7 @@ def rsa_decrypt(bytes, key):
 
 
 def is_fast_path(bytes):
+    if len(bytes) <= 1: return False
     return bytes[0] % 4 == 0 and bytes[1] in [len(bytes), 0x80]
 
 
@@ -281,8 +283,9 @@ def decrypt(bytes, From="Client"):
     if not cleartext == b"":
         #  print("Ciphertext: ")
         #  hexdump(bytes[offset:offset+16])
-        print("Cleartext: ")
-        hexdump(cleartext)
+        if args.debug:
+            print("Cleartext: ")
+            hexdump(cleartext)
         # Removing security header and MAC
         return bytes[:offset-12] + cleartext
     else:
@@ -448,25 +451,26 @@ def sign_certificate(bytes):
 
 
 def parse_rdp(bytes, From="Client"):
-    if bytes[:2] == b"\x03\x00":
-        while not bytes == b"":
+    if not bytes == b"":
+        if bytes[:2] == b"\x03\x00":
             length = struct.unpack('>H', bytes[2:4])[0]
             parse_rdp_packet(bytes[:length], From=From)
-            bytes = bytes[length:]
-    else: # fast path?
-        while not bytes == b"":
+            parse_rdp(bytes[length:], From=From)
+        else: # fast path?
             length = bytes[1]
             if length >= 0x80:
                 length = struct.unpack('>H', bytes[1:3])[0]
                 length -= 0x80*0x100
             parse_rdp_packet(bytes[:length], From=From)
-            bytes = bytes[length:]
+            parse_rdp(bytes[length:], From=From)
 
 
 def parse_rdp_packet(bytes, From="Client"):
 
+    #  if len(bytes) < 4: return None
     if sym_encryption_enabled():
         bytes = decrypt(bytes, From=From)
+    #  hexdump(bytes)
 
     result = b""
     # hexlify first because \x0a is a line break and regex works on single
@@ -511,8 +515,8 @@ def parse_rdp_packet(bytes, From="Client"):
         pass
 
 
-    #  if is_fast_path(bytes):
-        #  result = extract_key_press(bytes)
+    if len(bytes)>3 and bytes[2] in [b"\x00", b"\x01"]:
+        result = str(bytes[3]).encode()
 
     #  keymap_regex = b".*en-us.*" # TODO find keymap definition
     #  (CLIENT_CORE_DATA)
