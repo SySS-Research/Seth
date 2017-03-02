@@ -1,4 +1,6 @@
 data
+doc
 images
 *.crt
 *.key
+README.html
