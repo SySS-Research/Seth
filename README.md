@@ -336,34 +336,33 @@ Recommendations
 Now you're probably wondering what you, as a system administrator, can do
 about all of this to keep your network secure.
 
-First of all, it is absolutely critical that RDP connections cannot happen
-if the SSL certificate is not signed by a trusted certificate authority (CA).
-Clients must to be configured via Group Policy Objects to disallow
-connections if the certificate cannot be validated.
+Ideally, servers must insist on using CredSSP (NLA).  This can be
+rolled out as a [group policy](https://technet.microsoft.com/en-us/library/cc771869(v=ws.10).aspx):
 
-Computer configuration -> Policies -> Administrative Templates -> Windows
-Components -> Remote Desktop Services (or Terminal Services) -> Remote
-Desktop Connection Client -> Configure server authentication for client
+Computer configuration &rarr; Policies &rarr; Administrative Templates &rarr; Windows
+Components &rarr; Remote Desktop Services (or Terminal Services) &rarr; Remote
+Desktop Session Host (or Terminal Server) &rarr; Security &rarr; Require user
+authentication for remote connections by using Network Level Authentication
 
-https://technet.microsoft.com/en-us/library/cc753945(v=ws.10).aspx
+Also, in case the attacker tries to downgrade the security protocol to TLS,
+it is absolutely critical that RDP connections cannot happen if the SSL
+certificate is not signed by a trusted certificate authority (CA).  Clients
+must to be [configured via
+GPO](https://technet.microsoft.com/en-us/library/cc753945(v=ws.10).aspx) to
+disallow connections if the certificate cannot be validated:
+
+Computer configuration &rarr; Policies &rarr; Administrative Templates
+&rarr; Windows Components &rarr; Remote Desktop Services (or Terminal
+Services) &rarr; Remote Desktop Connection Client &rarr; Configure server
+authentication for client
+
 
 ![Configure server authentication for client](images/gpo-server-auth.png)
 
-Next, servers must insist on using CredSSP (NLA).  This can also be rolled
-out as a group policy.
-
-... -> Remote Desktop Services -> Remote Desktop Session Host (or Terminal
-Server) -> Security -> Require user authentication for remote connections by
-using Network Level Authentication
-
-https://technet.microsoft.com/en-us/library/cc771869(v=ws.10).aspx
-
-
 If you cannot use solely NLA due to compatibility reasons, you must sign all
 server certificates with your enterprise root CA and disallow standard RDP
-security. Set to TLS:
-
-... Require use of specific security layer for remote connections
+security. You can do so by setting the GPO "Require use of specific security
+layer for remote connections" to TLS.
 
 ![Require use of specific security layer for remote
 connections](images/gpo-tls-nla.png)

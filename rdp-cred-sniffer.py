@@ -516,12 +516,12 @@ def sign_certificate(bytes):
 
 
 def parse_rdp(bytes, From="Client"):
-    if not bytes == b"":
+    if len(bytes) > 2:
         if bytes[:2] == b"\x03\x00":
             length = struct.unpack('>H', bytes[2:4])[0]
             parse_rdp_packet(bytes[:length], From=From)
             parse_rdp(bytes[length:], From=From)
-        else: # fast path?
+        elif bytes[0] % 4 == 0: #fastpath
             length = bytes[1]
             if length >= 0x80:
                 length = struct.unpack('>H', bytes[1:3])[0]
@@ -650,7 +650,7 @@ def downgrade_auth(bytes):
     # 1: TLS instead
     # 2: CredSSP (NTLMv2 or Kerberos)
     # 8: CredSSP + Early User Authorization
-    if m and RDP_PROTOCOL >= args.downgrade:
+    if m and RDP_PROTOCOL > args.downgrade:
         print("Downgrading authentication options from %d to %d..." %
               (RDP_PROTOCOL, args.downgrade))
         RDP_PROTOCOL = args.downgrade
@@ -771,7 +771,7 @@ def run():
         try:
             if not forward_data():
                 break
-        except ssl.SSLError as e:
+        except (ssl.SSLError, ssl.SSLEOFError) as e:
             print("SSLError: %s" % str(e))
         except (ConnectionResetError, OSError):
             print("The client has disconnected")
