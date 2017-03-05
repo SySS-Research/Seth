@@ -1,7 +1,7 @@
 data
 doc
-images
 *.crt
 *.key
 *.css
 README.html
+*.pdf
