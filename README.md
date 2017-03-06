@@ -52,7 +52,7 @@ A first look at the protocol
 Let's fire up Wireshark and see what happens when we connect to a server via
 RDP:
 
-![The beginning of a RDP session in Wireshark](images/wireshark-nego.png)
+![The beginning of an RDP session in Wireshark](images/wireshark-nego.png)
 
 As we can see, the client starts with a suggestion of security protocols to
 use for the RDP session. We differentiate these three protocols:
@@ -169,13 +169,17 @@ groups](https://en.wikipedia.org/wiki/Finite_group).
 When you generate an RSA key pair, you need to find two large prime numbers,
 $p$ and $q$. You take their product, $n=pq$ (this is called the modulus),
 compute $\phi(n)=(p-1)(q-1)$ (the Euler totient function) and choose an
-integer $e$ that is co-prime to $\phi(n)$. Then you find the number $d$ that
-satisfies
+integer $e$ that is co-prime to $\phi(n)$. Then you need to find the number
+$d$ that satisfies
 $$e \cdot d = 1 \quad (\mod\: \phi(n)).$$
 
 The number $d$ is the private key while $e$ and $n$ make up the public key.
 Of course, theoretically $d$ can be reconstructed from $n$ and $e$, but
-$\phi(n)$ is very hard to compute unless you know $p$ and $q$.
+$\phi(n)$ is very hard to compute unless you know $p$ and $q$. That is why
+the security of RSA depends crucially on the difficulty of factoring large
+numbers. So far, no one knows how to factor large numbers efficiently --
+unless you have a working [quantum
+computer](https://en.wikipedia.org/wiki/Shor's_algorithm).
 
 To encrypt a message $m$, we raise it to the power $e$ modulo $n$:
 $$c = m^e \quad (\mod\: n)$$
