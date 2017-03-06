@@ -297,7 +297,7 @@ From server:
 </pre>
 
 I highlighted the bytes that represent the public key. The two bytes
-directly preceding it represent its length in little-endian byte-order
+directly preceding it represent its length in little-endian byte order
 (`0x011c`). As we discussed before, the public key consists of the modulus
 and the public exponent. Read the [RDP
 specifications](https://msdn.microsoft.com/en-us/library/cc240518.aspx) for
@@ -336,7 +336,7 @@ And the Server Random is:
     00000000: D95E A3AA D6F6 80EB 0B3E 1D8D 30B3 AB6A  .^.......>..0..j
     00000010: AE26 07EF 893D CB15 98AE 227E 4B2B AF07  .&...=...."~K+..
 
-All in little-endian byte-order. We take note of the Server Random and
+All in little-endian byte order. We take note of the Server Random and
 replace the other two values.
 
 To generate our RSA key, we'll use `openssl`. I know that there is a Python
@@ -545,7 +545,7 @@ Go ahead and try it out.
 
 As expected, the victim sees a proper SSL warning. But something is still
 different. Instead of being prompted for our credentials before the RDP
-connection is established, the victim is faced with the windows logon
+connection is established, the victim is faced with the Windows logon
 screen. Unlike with NLA, authentication happens inside the session. Again,
 that's something that is different from the typical workflow of an admin and
 could be noticed.

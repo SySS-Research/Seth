@@ -572,8 +572,11 @@ def parse_rdp_packet(bytes, From="Client"):
     regex = b".*0d00(.{4}).{164}0000" ## TODO
     m = re.match(regex, hexlify(bytes))
     if m and From == "Client":
-        result = extract_keyboard_layout(bytes, m)
-
+        try:
+            result = extract_keyboard_layout(bytes, m)
+        except:
+            print("Error while extracting keyboard layout information")
+            # A parsing error here shouldn't be a show stopper
 
     if len(bytes)>3 and bytes[-2] in [0,1,2,3] and result == b"":
         result = extract_key_press(bytes)
@@ -647,13 +650,6 @@ def set_fake_requested_protocol(data, m):
     offset = len(m.group())//2
     result = data[:offset+6] + bytes([RDP_PROTOCOL_OLD]) + data[offset+7:]
     return result
-
-#  with open("data/server_cert.bytes", 'rb') as f:
-#      bytes = f.read()
-#  parse_rdp(bytes)
-#  parse_rdp(tamper_data(bytes))
-#  exit(1)
-
 
 
 def downgrade_auth(bytes):
