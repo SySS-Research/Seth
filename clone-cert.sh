@@ -1,1 +1,1 @@
-/home/avollmer/syss.gitlab/adrian/scripts/clone-cert.sh
+/home/avollmer/.bin/clone-cert.sh
