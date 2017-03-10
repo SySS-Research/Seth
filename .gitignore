@@ -3,5 +3,5 @@ doc
 *.crt
 *.key
 *.css
-README.html
+*.html
 *.pdf
