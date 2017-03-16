@@ -3,5 +3,4 @@ data
 *.key
 *.css
 *.html
-*.pdf
 *.pyc
