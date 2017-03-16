@@ -1,7 +1,7 @@
 data
-doc
 *.crt
 *.key
 *.css
 *.html
 *.pdf
+*.pyc
