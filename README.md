@@ -11,7 +11,8 @@ Run it like this:
 
     $ ./seth.sh <INTERFACE> <ATTACKER IP> <VICTIM IP> <GATEWAY IP>
 
-For more information, run `./rdp-cred-sniffer.py -h` and read the code.
+For more information, read the PDF in `doc/article`, run
+`./rdp-cred-sniffer.py -h` or read the code.
 
 Disclaimer
 ----------
