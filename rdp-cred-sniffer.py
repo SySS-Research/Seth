@@ -15,10 +15,13 @@ import socket
 import ssl
 from binascii import hexlify, unhexlify
 import re
-from hexdump import hexdump
+try:
+    from hexdump import hexdump
+except ImportError:
+    pass
 import select
 import struct
-import time
+import sys
 import hashlib
 import subprocess
 
@@ -44,6 +47,11 @@ parser.add_argument('target_port', type=int, default=3389, nargs='?',
     help="TCP port of the target RDP service (default 3389)")
 
 args = parser.parse_args()
+if args.debug and not "hexdump" in sys.modules:
+    print("Warning: The python3 module 'hexdump' is missing. No debug"
+          " information will be printed")
+    args.debug = False
+
 
 
 
@@ -460,7 +468,6 @@ def translate_keycode(key):
 
 def extract_key_press(bytes):
     result = b""
-    #  hexdump(bytes)
     if is_fast_path(bytes):
         event = bytes[-2]
         key = bytes[-1]
@@ -528,7 +535,6 @@ def parse_rdp_packet(bytes, From="Client"):
 
     if sym_encryption_enabled():
         bytes = decrypt(bytes, From=From)
-    #  hexdump(bytes)
 
     result = b""
     # hexlify first because \x0a is a line break and regex works on single
