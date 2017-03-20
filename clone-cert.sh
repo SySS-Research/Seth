@@ -55,10 +55,9 @@ CLONED_CERT_FILE="$DIR$HOST.cert"
 CLONED_KEY_FILE="$DIR$HOST.key"
 ORIG_CERT_FILE="$CLONED_CERT_FILE.orig"
 
-CERT="$(openssl s_client -servername "$SERVER" \
-    -connect "$HOST" < /dev/null 2> /dev/null|
-    openssl x509 -outform PEM -out -  )"
-printf "%s" "$CERT" > "$ORIG_CERT_FILE"
+openssl s_client -servername "$SERVER" \
+    -connect "$HOST" < /dev/null 2> /dev/null | \
+    openssl x509 -outform PEM -out "$ORIG_CERT_FILE"
 OLD_MODULUS="$(openssl x509 -in "$ORIG_CERT_FILE" -modulus -noout \
     | sed -e 's/Modulus=//' | tr "[:upper:]" "[:lower:]")"
 KEY_LEN="$(openssl x509  -in "$ORIG_CERT_FILE" -noout -text \
