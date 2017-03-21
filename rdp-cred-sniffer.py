@@ -47,7 +47,7 @@ if args.debug:
         from hexdump import hexdump
     except ImportError:
         print("Warning: The python3 module 'hexdump' is missing. No debug"
-              " information will be printed")
+              " information will be printed.")
         args.debug = False
 
 
