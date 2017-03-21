@@ -15,13 +15,8 @@ import socket
 import ssl
 from binascii import hexlify, unhexlify
 import re
-try:
-    from hexdump import hexdump
-except ImportError:
-    pass
 import select
 import struct
-import sys
 import hashlib
 import subprocess
 
@@ -47,10 +42,13 @@ parser.add_argument('target_port', type=int, default=3389, nargs='?',
     help="TCP port of the target RDP service (default 3389)")
 
 args = parser.parse_args()
-if args.debug and not "hexdump" in sys.modules:
-    print("Warning: The python3 module 'hexdump' is missing. No debug"
-          " information will be printed")
-    args.debug = False
+if args.debug:
+    try:
+        from hexdump import hexdump
+    except ImportError:
+        print("Warning: The python3 module 'hexdump' is missing. No debug"
+              " information will be printed")
+        args.debug = False
 
 
 
