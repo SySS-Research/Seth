@@ -46,11 +46,9 @@ if args.debug:
     try:
         from hexdump import hexdump
     except ImportError:
-        print("Warning: The python3 module 'hexdump' is missing. No debug"
-              " information will be printed.")
-        args.debug = False
-
-
+        print("Warning: The python3 module 'hexdump' is missing.  "
+              "Using hexlify instead.")
+        def hexdump(x): print(hexlify(x).decode())
 
 
 TERM_PRIV_KEY = { # little endian, from [MS-RDPBCGR].pdf
