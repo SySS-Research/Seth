@@ -48,10 +48,10 @@ trap finish EXIT
 
 function create_self_signed_cert {
     local CN="$1"
-    echo "[!] Failed to clone certificate, create bogus self-signed certificate..."
+    echo "[!] Failed to clone certificate, create bogus self-signed certificate..." >&2
     openssl req -subj "/CN=$CN/O=Seth by SySS GmbH" -new \
         -newkey rsa:2048 -days 365 -nodes -x509 \
-        -keyout /tmp/$CN.server.key -out /tmp/$CN.server.crt
+        -keyout /tmp/$CN.server.key -out /tmp/$CN.server.crt 2> /dev/null 1>&2
     printf "%s\n%s\n" "/tmp/$CN.server.key" "/tmp/$CN.server.crt"
 }
 
