@@ -2,7 +2,7 @@ Seth
 ====
 
 Seth is a tool written in Python and Bash to MitM RDP connections. It
-attempts to downgrade the connection and extract clear text credential.
+attempts to downgrade the connection and extract clear text credentials.
 
 Usage
 -----
