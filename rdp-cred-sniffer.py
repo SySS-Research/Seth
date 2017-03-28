@@ -614,8 +614,7 @@ def tamper_data(bytes, From="Client"):
         )
         m = re.match(regex, hexlify(bytes))
         if m and RDP_PROTOCOL > 2:
-            #  result = tamper_nt_response(bytes)
-            pass
+            result = tamper_nt_response(bytes)
 
     global server_challenge
     if (From == "Server"
