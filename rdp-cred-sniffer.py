@@ -628,8 +628,7 @@ def tamper_data(bytes, From="Client"):
 
 
     if not result == bytes and args.debug:
-        print("Tampered data:")
-        hexdump(result)
+        dump_data(result, From=From, Modified=True)
 
     return result
 
@@ -703,13 +702,16 @@ def enableSSL():
     global local_conn
     global remote_socket
     print("Enable SSL")
-    local_conn  = ssl.wrap_socket(
-        local_conn,
-        server_side=True,
-        keyfile=args.keyfile,
-        certfile=args.certfile,
-    )
-    remote_socket = ssl.wrap_socket(remote_socket)
+    try:
+        local_conn  = ssl.wrap_socket(
+            local_conn,
+            server_side=True,
+            keyfile=args.keyfile,
+            certfile=args.certfile,
+        )
+        remote_socket = ssl.wrap_socket(remote_socket)
+    except (ConnectionResetError):
+        print("The client has disconnected")
 
 
 def close():
@@ -745,6 +747,12 @@ def forward_data():
                 #  local_conn.send(unhexlify(b"300da003020104a4060204c000005e"))
                 data = b"300da003020104a4060204c000005e"
                 to_socket.send(data)
+                return False
+            elif "alert internal error" in str(e):
+                print("TLS alert internal error, ...")
+                data = b"300da003020104a4060204c000005e"
+                #  to_socket.send(data)
+                to_socket.close()
                 return False
             else:
                 raise
