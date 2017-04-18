@@ -580,6 +580,12 @@ def parse_rdp_packet(bytes, From="Client"):
         result = extract_key_press(bytes)
 
 
+    regex = b"0300.*000300080005000000$"
+    m = re.match(regex, hexlify(bytes))
+    if m:
+        print("Server enforces NLA. Try your luck with the hash.")
+        exit(1)
+
     if not result == b"" and not result == None:
         print("\033[31m%s\033[0m" % result.decode())
 
