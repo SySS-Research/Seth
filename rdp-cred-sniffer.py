@@ -49,7 +49,6 @@ parser.add_argument('target_port', type=int, default=3389, nargs='?',
 
 args = parser.parse_args()
 
-SSL_CIPHERS = None
 
 TERM_PRIV_KEY = { # little endian, from [MS-RDPBCGR].pdf
     "n": [ 0x3d, 0x3a, 0x5e, 0xbd, 0x72, 0x43, 0x3e, 0xc9, 0x4d, 0xbb, 0xc1,
@@ -710,7 +709,10 @@ def enableSSL():
             keyfile=args.keyfile,
             certfile=args.certfile,
         )
-        remote_socket = ssl.wrap_socket(remote_socket, ciphers=SSL_CIPHERS)
+        try:
+            remote_socket = ssl.wrap_socket(remote_socket, ciphers="RC4-SHA")
+        except SSLError:
+            remote_socket = ssl.wrap_socket(remote_socket, ciphers=None)
     except (ConnectionResetError):
         print("Connection lost")
     except (ssl.SSLEOFError):
@@ -750,9 +752,9 @@ def forward_data():
                 local_conn.send(unhexlify(b"300da003020104a4060204c000005e"))
                 return False
             elif "alert internal error" in str(e):
-                print("TLS alert internal error received, trying RC4-SHA")
-                global SSL_CIPHERS
-                SSL_CIPHERS = "RC4-SHA"
+                # openssl connecting to windows7 with AES doesn't seem to
+                # work
+                print("TLS alert internal error received, make sure to use RC4-SHA")
                 return False
             else:
                 raise
