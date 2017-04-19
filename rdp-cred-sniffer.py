@@ -119,6 +119,7 @@ class RC4(object):
         pad2 = b"\x5c"*48
         # TODO finish this
 
+
 def substr(s, offset, count):
     return s[offset:offset+count]
 
@@ -516,14 +517,15 @@ def parse_rdp(bytes, From="Client"):
             length = struct.unpack('>H', bytes[2:4])[0]
             parse_rdp_packet(bytes[:length], From=From)
             parse_rdp(bytes[length:], From=From)
-        elif bytes[0] == 30:
+        elif bytes[0] == 0x30:
             length = bytes[1]
+            pad = 2
             if length >= 0x80:
                 length_bytes = length - 0x80
-                length = struct.unpack('>' + 'H'*length_bytes,
-                                       bytes[1:1+length_bytes])[0]
-            parse_rdp_packet(bytes[:length], From=From)
-            parse_rdp(bytes[length:], From=From)
+                length = int.from_bytes(bytes[2:2+length_bytes], byteorder='big')
+                pad = 2 + length_bytes
+            parse_rdp_packet(bytes[:length+pad], From=From)
+            parse_rdp(bytes[length+pad:], From=From)
         elif bytes[0] % 4 == 0: #fastpath
             length = bytes[1]
             if length >= 0x80:
