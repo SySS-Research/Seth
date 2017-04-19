@@ -156,24 +156,7 @@ def extract_ntlmv2(bytes, m):
                  hexlify(jtr_string),
          )
 
-    try:
-        domain = values["domain"].decode('utf-16')
-        filename = "jtr-hash-%s.txt" % domain
-        with open(filename, "ba+") as f:
-            f.write(result)
-        print("Wrote hash to file %s" % filename)
-    except:
-        print("Failed to write hash to file")
-
     return result
-
-#  with open("jtr/binary.dat", "br") as f:
-#      bytes = f.read()
-#  regex = b".*%s0003000000" % hexlify(b"NTLMSSP")
-#  m = re.match(regex, hexlify(bytes))
-#  result = extract_ntlmv2(bytes, m)
-#  print("\033[31m%s\033[0m" % result.decode())
-#  exit(0)
 
 
 def extract_server_challenge(bytes, m):
