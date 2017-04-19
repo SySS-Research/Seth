@@ -148,13 +148,32 @@ def extract_ntlmv2(bytes, m):
     if not 'server_challenge' in globals():
         server_challenge = b"SERVER_CHALLENGE_MISSING"
 
-    return b"%s::%s:%s:%s:%s" % (
+    result = b"%s::%s:%s:%s:%s" % (
                  values["user"].decode('utf-16').encode(),
                  values["domain"].decode('utf-16').encode(),
                  hexlify(server_challenge),
                  hexlify(nt_response),
                  hexlify(jtr_string),
          )
+
+    try:
+        domain = values["domain"].decode('utf-16')
+        filename = "jtr-hash-%s.txt" % domain
+        with open(filename, "ba+") as f:
+            f.write(result)
+        print("Wrote hash to file %s" % filename)
+    except:
+        print("Failed to write hash to file")
+
+    return result
+
+#  with open("jtr/binary.dat", "br") as f:
+#      bytes = f.read()
+#  regex = b".*%s0003000000" % hexlify(b"NTLMSSP")
+#  m = re.match(regex, hexlify(bytes))
+#  result = extract_ntlmv2(bytes, m)
+#  print("\033[31m%s\033[0m" % result.decode())
+#  exit(0)
 
 
 def extract_server_challenge(bytes, m):
@@ -514,14 +533,21 @@ def parse_rdp(bytes, From="Client"):
             length = struct.unpack('>H', bytes[2:4])[0]
             parse_rdp_packet(bytes[:length], From=From)
             parse_rdp(bytes[length:], From=From)
+        elif bytes[0] == 30:
+            length = bytes[1]
+            if length >= 0x80:
+                length_bytes = length - 0x80
+                length = struct.unpack('>' + 'H'*length_bytes,
+                                       bytes[1:1+length_bytes])[0]
+            parse_rdp_packet(bytes[:length], From=From)
+            parse_rdp(bytes[length:], From=From)
         elif bytes[0] % 4 == 0: #fastpath
             length = bytes[1]
             if length >= 0x80:
                 length = struct.unpack('>H', bytes[1:3])[0]
                 length -= 0x80*0x100
             parse_rdp_packet(bytes[:length], From=From)
-            if length > 0:
-                parse_rdp(bytes[length:], From=From)
+            parse_rdp(bytes[length:], From=From)
 
 
 def parse_rdp_packet(bytes, From="Client"):
