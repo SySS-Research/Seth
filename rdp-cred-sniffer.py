@@ -652,7 +652,7 @@ def tamper_data(bytes, From="Client"):
     if (From == "Server"
         and "server_challenge" in globals()
        ):
-        regex = "30..a0.*6d"
+        regex = b"30..a0.*6d"
         m = re.match(regex, hexlify(bytes))
         if m:
             print("Downgrading CredSSP")
