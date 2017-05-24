@@ -728,7 +728,7 @@ def enableSSL():
         )
         try:
             remote_socket = ssl.wrap_socket(remote_socket, ciphers="RC4-SHA")
-        except SSLError:
+        except ssl.SSLError:
             remote_socket = ssl.wrap_socket(remote_socket, ciphers=None)
     except (ConnectionResetError):
         print("Connection lost")
