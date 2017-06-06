@@ -432,6 +432,8 @@ def extract_credentials(bytes, m):
     offset = 37
     if domlen + userlen + pwlen < len(bytes):
         domain = substr(bytes, offset, domlen).decode("utf-16")
+        if domain == "":
+            domain = "."
         user = substr(bytes, offset+domlen+2, userlen).decode("utf-16")
         pw = substr(bytes, offset+domlen+2+userlen+2, pwlen).decode("utf-16")
         return (b"%s\\%s:%s" % (domain.encode(), user.encode(), pw.encode()))
@@ -708,7 +710,7 @@ def handle_protocol_negotiation():
     dump_data(data, From="Server")
     local_conn.send(data)
 
-    regex = b"0300.*000300080005000000"
+    regex = b"0300.*000300080005000000$"
     m = re.match(regex, hexlify(data))
     if m:
         print("Server enforces NLA. Try your luck with the hash.")
