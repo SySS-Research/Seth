@@ -16,12 +16,12 @@ For more information, read the PDF in `doc/paper`, run
 
 
 Demo
----
+----
 
-The following ouput shows the attacks view. They sniff an offline crackable
-hash as well as the clear text password. Here, NLA is not enforced and the
-victim ignored the certificate warning. The client is Windows 7 and the
-Server Windows 10.
+The following ouput shows the attacker's view. Seth sniffs an offline
+crackable hash as well as the clear text password. Here, NLA is not enforced
+and the victim ignored the certificate warning. The client is Windows 7 and
+the Server Windows 10.
 
     # ./seth.sh eth1 192.168.57.{103,2,102}
     ███████╗███████╗████████╗██╗  ██╗
