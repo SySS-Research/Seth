@@ -1,8 +1,11 @@
 Seth
 ====
 
-Seth is a tool written in Python and Bash to MitM RDP connections. It
-attempts to downgrade the connection and extract clear text credentials.
+Seth is a tool written in Python and Bash to MitM RDP connections by
+attempting to downgrade the connection in order to extract clear text
+credentials. It was developed to raise awareness and educate about the
+importance of properly configured RDP connections in the context of
+workshops or talks.
 
 Usage
 -----
@@ -11,8 +14,38 @@ Run it like this:
 
     $ ./seth.sh <INTERFACE> <ATTACKER IP> <VICTIM IP> <GATEWAY IP>
 
-For more information, read the PDF in `doc/paper`, run
-`./rdp-cred-sniffer.py -h` or read the code.
+This script performs ARP spoofing to gain a Man-in-the-Middle position and
+redirects the traffic such that it runs through an RDP proxy. The proxy can
+be called separately:
+
+    $ ./rdp-cred-sniffer.py -h
+    usage: rdp-cred-sniffer.py [-h] [-d] [-p LISTEN_PORT] [-b BIND_IP]
+                               [-g {0,1,3,11}] -c CERTFILE -k KEYFILE
+                               target_host [target_port]
+
+    RDP credential sniffer -- Adrian Vollmer, SySS GmbH 2017
+
+    positional arguments:
+      target_host           target host of the RDP service
+      target_port           TCP port of the target RDP service (default 3389)
+
+    optional arguments:
+      -h, --help            show this help message and exit
+      -d, --debug           show debug information
+      -p LISTEN_PORT, --listen-port LISTEN_PORT
+                            TCP port to listen on (default 3389)
+      -b BIND_IP, --bind-ip BIND_IP
+                            IP address to bind the fake service to (default all)
+      -g {0,1,3,11}, --downgrade {0,1,3,11}
+                            downgrade the authentication protocol to this (default
+                            3)
+      -c CERTFILE, --certfile CERTFILE
+                            path to the certificate file
+      -k KEYFILE, --keyfile KEYFILE
+                            path to the key file
+
+For more information read the PDF in `doc/paper` (or read the code!). The
+paper also contains recommendations for counter measures.
 
 
 Demo
@@ -28,7 +61,7 @@ the Server Windows 10.
     ██╔════╝██╔════╝╚══██╔══╝██║  ██║   by Adrian Vollmer
     ███████╗█████╗     ██║   ███████║   seth@vollmer.syss.de
     ╚════██║██╔══╝     ██║   ██╔══██║   SySS GmbH, 2017
-    ███████║███████╗   ██║   ██║  ██║   https://www.syss.com
+    ███████║███████╗   ██║   ██║  ██║   https://www.syss.de
     ╚══════╝╚══════╝   ╚═╝   ╚═╝  ╚═╝
     [*] Spoofing arp replies...
     [*] Turning on IP forwarding...
