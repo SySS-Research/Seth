@@ -5,7 +5,7 @@ Seth is a tool written in Python and Bash to MitM RDP connections by
 attempting to downgrade the connection in order to extract clear text
 credentials. It was developed to raise awareness and educate about the
 importance of properly configured RDP connections in the context of
-workshops or talks.
+pentests, workshops or talks.
 
 Usage
 -----
