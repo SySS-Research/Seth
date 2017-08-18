@@ -12,9 +12,12 @@ Usage
 
 Run it like this:
 
-    $ ./seth.sh <INTERFACE> <ATTACKER IP> <VICTIM IP> <GATEWAY IP>
+    $ ./seth.sh <INTERFACE> <ATTACKER IP> <VICTIM IP> <GATEWAY IP|HOST IP>
 
-This script performs ARP spoofing to gain a Man-in-the-Middle position and
+Unless the RDP host is on the same subnet as the victim machine, the last IP
+address must be that of the gateway.
+
+The script performs ARP spoofing to gain a Man-in-the-Middle position and
 redirects the traffic such that it runs through an RDP proxy. The proxy can
 be called separately:
 

