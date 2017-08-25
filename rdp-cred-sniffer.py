@@ -20,13 +20,6 @@ import struct
 import hashlib
 import subprocess
 
-try:
-    from hexdump import hexdump
-except ImportError:
-    print("Warning: The python3 module 'hexdump' is missing.  "
-          "Using hexlify instead.")
-    def hexdump(x): print(hexlify(x).decode())
-
 parser = argparse.ArgumentParser(
     description="RDP credential sniffer -- Adrian Vollmer, SySS GmbH 2017")
 parser.add_argument('-d', '--debug', dest='debug', action="store_true",
@@ -48,6 +41,14 @@ parser.add_argument('target_port', type=int, default=3389, nargs='?',
     help="TCP port of the target RDP service (default 3389)")
 
 args = parser.parse_args()
+
+if args.debug:
+    try:
+        from hexdump import hexdump
+    except ImportError:
+        print("Warning: The python3 module 'hexdump' is missing.  "
+              "Using hexlify instead.")
+        def hexdump(x): print(hexlify(x).decode())
 
 
 TERM_PRIV_KEY = { # little endian, from [MS-RDPBCGR].pdf
