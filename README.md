@@ -57,8 +57,9 @@ Demo
 
 The following ouput shows the attacker's view. Seth sniffs an offline
 crackable hash as well as the clear text password. Here, NLA is not enforced
-and the victim ignored the certificate warning. The client is Windows 7 and
-the Server Windows 10.
+and the victim ignored the certificate warning.
+
+![Seth](https://github.com/SySS-Research/Seth/blob/master/doc/img/seth-logo.png)
 
     # ./seth.sh eth1 192.168.57.{103,2,102}
     ███████╗███████╗████████╗██╗  ██╗
