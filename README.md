@@ -120,11 +120,7 @@ Requirements
 * `arpspoof`
 
   `arpspoof` is part of `dsniff`
-* `openssl` < 1.1.0f
-
-  OpenSSL should not be too recent, as it does not support older versions of
-  the SSL protocol and thus may be incompatible with older version of the
-  Windows RDP client.
+* `openssl`
 
 
 Disclaimer
