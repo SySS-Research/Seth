@@ -15,13 +15,19 @@ Run it like this:
     $ ./seth.sh <INTERFACE> <ATTACKER IP> <VICTIM IP> <GATEWAY IP|HOST IP> [<COMMAND>]
 
 Unless the RDP host is on the same subnet as the victim machine, the last IP
-address must be that of the gateway. The last parameter is optional. It can
-contain a command that is executed on the RDP host by simulating WIN+R via
-key press event injection.
+address must be that of the gateway.
 
-The script performs ARP spoofing to gain a Man-in-the-Middle position and
-redirects the traffic such that it runs through an RDP proxy. The proxy can
-be called separately:
+The last parameter is optional. It can contain a command that is executed on
+the RDP host by simulating WIN+R via key press event injection. Keystroke
+injection depends on which keyboard layout the victim is using - currently
+it's only reliable with the English US layout. I suggest avoiding special
+characters by using `powershell -enc <STRING>`, where STRING is your
+UTF-16le and Base64 encoded command.  However, `calc` should be pretty
+universal and gets the job done.
+
+The shell script performs ARP spoofing to gain a Man-in-the-Middle position
+and redirects the traffic such that it runs through an RDP proxy. The proxy
+can be called separately:
 
     usage: seth.py [-h] [-d] [-f] [-p LISTEN_PORT] [-b BIND_IP] [-g {0,1,3,11}]
                    [-j INJECT] -c CERTFILE -k KEYFILE
