@@ -23,8 +23,8 @@ The script performs ARP spoofing to gain a Man-in-the-Middle position and
 redirects the traffic such that it runs through an RDP proxy. The proxy can
 be called separately:
 
-    usage: seth.py [-h] [-d] [-f] [-p LISTEN_PORT] [-b BIND_IP] [-g {0,1,3,11}] -c
-                   CERTFILE -k KEYFILE [-j INJECT]
+    usage: seth.py [-h] [-d] [-f] [-p LISTEN_PORT] [-b BIND_IP] [-g {0,1,3,11}]
+                   [-j INJECT] -c CERTFILE -k KEYFILE
                    target_host [target_port]
 
     RDP credential sniffer -- Adrian Vollmer, SySS GmbH 2017
@@ -44,12 +44,12 @@ be called separately:
       -g {0,1,3,11}, --downgrade {0,1,3,11}
                             downgrade the authentication protocol to this (default
                             3)
+      -j INJECT, --inject INJECT
+                            command to execute via key press event injection
       -c CERTFILE, --certfile CERTFILE
                             path to the certificate file
       -k KEYFILE, --keyfile KEYFILE
                             path to the key file
-      -j INJECT, --inject INJECT
-                            command to execute via key press event injection
 
 For more information read the PDF in `doc/paper` (or read the code!). The
 paper also contains recommendations for counter measures.
