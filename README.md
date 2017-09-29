@@ -16,7 +16,7 @@ Run it like this:
 
 Unless the RDP host is on the same subnet as the victim machine, the last IP
 address must be that of the gateway. The last parameter is optional. It can
-contain a command that is execute on the RDP host by simulation WIN+R via
+contain a command that is executed on the RDP host by simulating WIN+R via
 key press event injection.
 
 The script performs ARP spoofing to gain a Man-in-the-Middle position and
