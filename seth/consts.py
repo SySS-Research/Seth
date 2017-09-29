@@ -34,8 +34,12 @@ SCANCODE = {
     "F10", 69: "Num", 70: "Scroll", 71: "Home (7)", 72: "Up (8)", 73:
     "PgUp (9)", 74: "-", 75: "Left (4)", 76: "Center (5)", 77: "Right (6)",
     78: "+", 79: "End (1)", 80: "Down (2)", 81: "PgDn (3)", 82: "Ins", 83:
-    "Del",
+    "Del", #91: "LMeta", 92: "RMeta",
 }
+
+REV_SCANCODE = dict([(v, k) for k, v in SCANCODE.items()])
+REV_SCANCODE[" "] = REV_SCANCODE["Space"]
+REV_SCANCODE["LMeta"] = 91
 
 #  https://support.microsoft.com/de-de/help/324097/list-of-language-packs-and-their-codes-for-windows-2000-domain-control
 KBD_LAYOUT_CNTRY = {

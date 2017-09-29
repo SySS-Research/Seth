@@ -12,18 +12,19 @@ Usage
 
 Run it like this:
 
-    $ ./seth.sh <INTERFACE> <ATTACKER IP> <VICTIM IP> <GATEWAY IP|HOST IP>
+    $ ./seth.sh <INTERFACE> <ATTACKER IP> <VICTIM IP> <GATEWAY IP|HOST IP> [<COMMAND>]
 
 Unless the RDP host is on the same subnet as the victim machine, the last IP
-address must be that of the gateway.
+address must be that of the gateway. The last parameter is optional. It can
+contain a command that is execute on the RDP host by simulation WIN+R via
+key press event injection.
 
 The script performs ARP spoofing to gain a Man-in-the-Middle position and
 redirects the traffic such that it runs through an RDP proxy. The proxy can
 be called separately:
 
-    $ ./seth.py -h
-    usage: seth.py [-h] [-d] [-f] [-p LISTEN_PORT] [-b BIND_IP]
-                   [-g {0,1,3,11}] -c CERTFILE -k KEYFILE
+    usage: seth.py [-h] [-d] [-f] [-p LISTEN_PORT] [-b BIND_IP] [-g {0,1,3,11}] -c
+                   CERTFILE -k KEYFILE [-j INJECT]
                    target_host [target_port]
 
     RDP credential sniffer -- Adrian Vollmer, SySS GmbH 2017
@@ -47,6 +48,8 @@ be called separately:
                             path to the certificate file
       -k KEYFILE, --keyfile KEYFILE
                             path to the key file
+      -j INJECT, --inject INJECT
+                            command to execute via key press event injection
 
 For more information read the PDF in `doc/paper` (or read the code!). The
 paper also contains recommendations for counter measures.
