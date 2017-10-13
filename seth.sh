@@ -69,8 +69,8 @@ set_iptables_2 () {
 function finish {
     echo "[*] Cleaning up..."
     set +e
-    set_iptables_2 D "$VICTIM_IP" "$ATTACKER_IP" "$ORIGINAL_DEST" 2> /dev/null 1>&2
-    set_iptables_3 D "$VICTIM_IP" "$ATTACKER_IP" 2> /dev/null 1>&2
+    set_iptables_1 D 2> /dev/null 1>&2
+    set_iptables_2 D 2> /dev/null 1>&2
     printf "%s" "$IP_FORWARD" > /proc/sys/net/ipv4/ip_forward
     kill $ARP_PID_1 2> /dev/null 1>&2
     kill $ARP_PID_2 2> /dev/null 1>&2
