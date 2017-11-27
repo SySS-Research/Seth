@@ -60,6 +60,8 @@ can be called separately:
 For more information read the PDF in `doc/paper` (or read the code!). The
 paper also contains recommendations for counter measures.
 
+You can also watch a twenty minute presentation including a demo (starting
+at 14:00) on Youtube: https://www.youtube.com/watch?v=wdPkY7gykf4
 
 Demo
 ----
@@ -120,8 +122,6 @@ and the victim ignored the certificate warning.
     Connection lost
     [*] Cleaning up...
     [*] Done.
-
-For a video demonstration, see https://www.youtube.com/watch?v=-Tq0Y5vdf28
 
 Requirements
 ------------
