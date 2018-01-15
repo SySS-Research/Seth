@@ -27,7 +27,10 @@ universal and gets the job done.
 
 The shell script performs ARP spoofing to gain a Man-in-the-Middle position
 and redirects the traffic such that it runs through an RDP proxy. The proxy
-can be called separately:
+can be called separately. This can be useful if you want use Seth in
+combination with Responder. Use Responder to gain a Man-in-the-Middle
+position and run Seth at the same time. Run `seth.py -h` for more
+information:
 
     usage: seth.py [-h] [-d] [-f] [-p LISTEN_PORT] [-b BIND_IP] [-g {0,1,3,11}]
                    [-j INJECT] -c CERTFILE -k KEYFILE
