@@ -131,7 +131,8 @@ class RDPProxy(threading.Thread):
             )
             try:
                 self.rsock = ssl.wrap_socket(self.rsock, ciphers="RC4-SHA")
-            except ssl.SSLError:
+            except ssl.SSLError as e:
+                print("Not using RC4-SHA because of SSL Error:", str(e))
                 self.rsock = ssl.wrap_socket(self.rsock, ciphers=None)
         except ConnectionResetError:
             print("Connection lost")
