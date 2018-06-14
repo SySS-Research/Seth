@@ -189,6 +189,14 @@ def extract_key_press(bytes):
             result += extract_key_press(
                 b"\x44%c%s" % (len(bytes)-2, bytes[2:-2])
             ) + b"\n"
+    elif len(bytes) == 2:
+        event = bytes[0]
+        key = bytes[1]
+        key = translate_keycode(key)
+        if event == 1 and key:
+            result += b"Key release:                 %s\n" % key.encode()
+        elif key:
+            result += b"Key press:   %s\n" % key.encode()
     else:
         event = bytes[-5]
         key = bytes[-4]
@@ -314,6 +322,14 @@ def parse_rdp_packet(bytes, vars=None, From="Client"):
         len(bytes)>3 and len(bytes) <= 8 and bytes[-2] in [0,1] or
         m
     ):
+        keypress = extract_key_press(bytes)
+        if keypress:
+            print("\033[31m%s\033[0m" % keypress.decode())
+
+    # keyboard events in standard rdp
+    regex = b"^0[01]..$"
+    m = re.match(regex, hexlify(bytes))
+    if result == {} and m:
         keypress = extract_key_press(bytes)
         if keypress:
             print("\033[31m%s\033[0m" % keypress.decode())
