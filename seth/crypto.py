@@ -1,5 +1,7 @@
 import struct
 import hashlib
+import subprocess
+import re
 from binascii import hexlify, unhexlify
 
 from seth.args import args, hexdump
@@ -36,7 +38,7 @@ class RC4(object):
         # TODO finish this
 
 
-def reencrypt_client_random(bytes):
+def reencrypt_client_random(crypto, bytes):
     """Replace the original encrypted client random (encrypted with OUR
     public key) with the client random encrypted with the original public
     key"""
@@ -211,7 +213,7 @@ def rc4_decrypt(data, From="Client"):
         return RC4_SERVER.decrypt(data)
 
 
-def sign_certificate(cert):
+def sign_certificate(cert, sign_len):
     """Signs the certificate with the private key"""
     m = hashlib.md5()
     m.update(cert)
@@ -220,6 +222,6 @@ def sign_certificate(cert):
     d = int.from_bytes(TERM_PRIV_KEY["d"], "little")
     n = int.from_bytes(TERM_PRIV_KEY["n"], "little")
     s = pow(m, d, n)
-    return s.to_bytes(len(crypto["sign"]), "little")
+    return s.to_bytes(sign_len, "little")
 
 
