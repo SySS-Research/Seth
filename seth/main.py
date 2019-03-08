@@ -54,7 +54,7 @@ class RDPProxy(threading.Thread):
                 self.forward_data()
             except (ssl.SSLError, ssl.SSLEOFError) as e:
                 print("SSLError: %s" % str(e))
-            except (ConnectionResetError, OSError) as e:
+            except (ConnectionResetError, OSError, ValueError) as e:
                 print("Connection lost (%s)" % str(e))
                 if "creds" in self.vars:
                     stop_attack()
