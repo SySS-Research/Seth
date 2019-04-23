@@ -66,6 +66,9 @@ paper also contains recommendations for counter measures.
 You can also watch a twenty minute presentation including a demo (starting
 at 14:00) on Youtube: https://www.youtube.com/watch?v=wdPkY7gykf4
 
+Or watch just the demo (with subtitles) here:
+https://www.youtube.com/watch?v=JvvxTNrKV-s
+
 Demo
 ----
 
