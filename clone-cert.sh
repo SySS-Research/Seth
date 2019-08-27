@@ -68,18 +68,12 @@ KEY_LEN="$(openssl x509  -in "$ORIG_CERT_FILE" -noout -text \
 MY_PRIV_KEY="$DIR$HOST.$KEY_LEN.key"
 MY_PUBL_KEY="$DIR$HOST.$KEY_LEN.cert"
 
-if [ "$OS" == "Darwin" ];
-then
-    offset="$(openssl asn1parse -in "$ORIG_CERT_FILE" | grep SEQUENCE \
-        | tail -n1 | head -n1 | awk '{print $1}' | sed 's/:.*//')"
-else
-    offset="$(openssl asn1parse -in "$ORIG_CERT_FILE" | grep SEQUENCE \
-        | tail -n1 |sed 's/ \+\([0-9]\+\):.*/\1/' | head -n1)"
-fi
+offset="$(openssl asn1parse -in "$ORIG_CERT_FILE" | grep SEQUENCE \
+    | tail -n1 | head -n1 | awk '{print $1}' | sed 's/:.*//')"
 SIGNING_ALGO="$(openssl asn1parse -in "$ORIG_CERT_FILE" \
     -strparse "$offset" -noout -out >(xxd -p -c99999))"
 offset="$(openssl asn1parse -in "$ORIG_CERT_FILE" \
-    | tail -n1 |sed 's/ \+\([0-9]\+\):.*/\1/' | head -n1)"
+    | tail -n1 | head -n1 | awk '{print $1}' | sed 's/:.*//')"
 OLD_SIGNATURE="$(openssl asn1parse -in "$ORIG_CERT_FILE" \
     -strparse "$offset" -noout -out >(xxd -p -c999999))"
 OLD_TBS_CERTIFICATE="$(openssl asn1parse -in "$ORIG_CERT_FILE" \
