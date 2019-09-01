@@ -4,7 +4,6 @@ import threading
 import select
 import re
 import os
-import sys
 import subprocess
 import time
 from binascii import hexlify, unhexlify
