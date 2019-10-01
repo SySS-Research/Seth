@@ -54,7 +54,13 @@ class RDPProxy(threading.Thread):
                 self.forward_data()
             except (ssl.SSLError, ssl.SSLEOFError) as e:
                 print("SSLError: %s" % str(e))
-            except (ConnectionResetError, OSError, ValueError) as e:
+            except ValueError:
+                print("Something went wrong during the SSL handshake. "
+                      "Make sure that /etc/ssl/openssl.cnf contains this "
+                      "line in the section [system_default_sect]:")
+                print("    MinProtocol = TLSv1.0")
+                os._exit(1)
+            except (ConnectionResetError, OSError) as e:
                 print("Connection lost (%s)" % str(e))
                 if "creds" in self.vars:
                     stop_attack()
