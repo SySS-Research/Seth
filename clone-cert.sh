@@ -10,6 +10,7 @@ SERVER="$(printf "%s" "$HOST" | cut -f1 -d:)"
 DIR="/tmp/"
 KEYLENGTH=1024 # 1024 is faster, but less secure than 4096
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+OS=$(uname -s)
 
 if [ "$HOST" = "" ] ; then
 cat <<EOF
@@ -68,13 +69,13 @@ MY_PRIV_KEY="$DIR$HOST.$KEY_LEN.key"
 MY_PUBL_KEY="$DIR$HOST.$KEY_LEN.cert"
 
 offset="$(openssl asn1parse -in "$ORIG_CERT_FILE" | grep SEQUENCE \
-    | tail -n1 |sed 's/ \+\([0-9]\+\):.*/\1/' | head -n1)"
+    | tail -n1 | head -n1 | awk '{print $1}' | sed 's/:.*//')"
 SIGNING_ALGO="$(openssl asn1parse -in "$ORIG_CERT_FILE" \
-    -strparse $offset -noout -out >(xxd -p -c99999))"
+    -strparse "$offset" -noout -out >(xxd -p -c99999))"
 offset="$(openssl asn1parse -in "$ORIG_CERT_FILE" \
-    | tail -n1 |sed 's/ \+\([0-9]\+\):.*/\1/' | head -n1)"
+    | tail -n1 | head -n1 | awk '{print $1}' | sed 's/:.*//')"
 OLD_SIGNATURE="$(openssl asn1parse -in "$ORIG_CERT_FILE" \
-    -strparse $offset -noout -out >(xxd -p -c999999))"
+    -strparse "$offset" -noout -out >(xxd -p -c999999))"
 OLD_TBS_CERTIFICATE="$(openssl asn1parse -in "$ORIG_CERT_FILE" \
     -strparse 4 -noout -out >(xxd -p -c99999))"
 

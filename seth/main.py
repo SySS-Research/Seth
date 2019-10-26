@@ -48,7 +48,7 @@ class RDPProxy(threading.Thread):
             try:
                 self.run_fake_server()
             except ConnectionResetError:
-                print("Connection lost")
+                print("Connection lost on run_fake_server")
         while not self.cancelled and not args.fake_server:
             try:
                 self.forward_data()
@@ -121,8 +121,16 @@ class RDPProxy(threading.Thread):
         if args.fake_server:
             self.lsock.send(consts.SERVER_RESPONSES[0])
             return None
-        self.rsock.send(data)
-        data = self.rsock.recv(4096)
+        try:
+            self.rsock.send(data)
+        except socket.error as e:
+            print("Error sending data: %s" % e)
+            os._exit(1)
+        try:
+            data = self.rsock.recv(4096)
+        except socket.error as e:
+            print("Error receiving data: %s" % e)
+            os._exit(1)
         dump_data(data, From="Server")
 
         regex = b"0300.*000300080005000000$"
@@ -132,32 +140,52 @@ class RDPProxy(threading.Thread):
                 print("Server enforces NLA; switching to 'fake server' mode")
             args.fake_server = True
             data = consts.SERVER_RESPONSES[0]
-        self.lsock.send(data)
+        try:
+            self.lsock.send(data)
+        except socket.error as e:
+            print("Error sending data: %s" % e)
+            os._exit(1)
 
 
     def enableSSL(self):
         print("Enable SSL")
         try:
             sslversion = get_ssl_version(self.lsock)
-            self.lsock = ssl.wrap_socket(
+            ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            ctx.load_cert_chain(args.certfile, keyfile=args.keyfile, password=None)
+            self.lsock = ctx.wrap_socket(
                 self.lsock,
                 server_side=True,
-                keyfile=args.keyfile,
-                certfile=args.certfile,
-                ssl_version=sslversion,
+                do_handshake_on_connect=True,
             )
             if self.rc4:
                 try:
-                    self.rsock = ssl.wrap_socket(self.rsock, ciphers="RC4-SHA")
+                    print("Try to use RC4-SHA cipher")
+                    ctx.set_ciphers("RC4-SHA")
+                    self.rsock = ctx.wrap_socket(
+                        self.rsock,
+                        do_handshake_on_connect=True,
+                    )
                 except ssl.SSLError:
                     print("Not using RC4-SHA because of SSL Error:", str(e))
-                    self.rsock = ssl.wrap_socket(self.rsock, ciphers=None)
+                    self.rsock = ctx.wrap_socket(
+                        self.rsock,
+                        do_handshake_on_connect=True,
+                    )
+                except ConnectionResetError as e:
+                    print("Unexpected error: %s" % e)
+                    os._exit(1)
             else:
-                self.rsock = ssl.wrap_socket(self.rsock, ciphers=None)
-        except ConnectionResetError:
-            print("Connection lost")
-        except ssl.SSLEOFError:
-            print("SSL EOF Error during handshake")
+                self.rsock = ctx.wrap_socket(
+                    self.rsock,
+                    do_handshake_on_connect=True,
+                )
+        except ConnectionResetError as e:
+            print("Connection lost on enableSSL: %s" % e)
+        except ssl.SSLEOFError as e:
+            print("SSL EOF Error during handshake: %s" % e)
         except AttributeError as e:
             # happens when there is no rsock, i.e. fake_server==True
             print(e)
@@ -240,7 +268,11 @@ def read_data(sock):
 
 
 def open_sockets(port):
-    local_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        local_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    except socket.error as e:
+        print("Error creating socket: %s" % e)
+        os._exit(1)
     local_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     local_socket.bind((args.bind_ip, args.listen_port))
     local_socket.listen()
@@ -252,8 +284,19 @@ def open_sockets(port):
 
     remote_socket = None
     if not args.fake_server:
-        remote_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        remote_socket.connect((args.target_host, port))
+        try:
+            remote_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        except socket.error as e:
+            print("Error creating socket: %s" % e)
+            os._exit(1)
+        try:
+            remote_socket.connect((args.target_host, port))
+        except socket.gaierror as e:
+            print("Address-related error connecting to server: %s" % e)
+            os._exit(1)
+        except socket.error as e:
+            print("Connection error: %s" % e)
+            os._exit(1)
 
     return local_conn, remote_socket
 
