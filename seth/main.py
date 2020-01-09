@@ -148,6 +148,12 @@ class RDPProxy(threading.Thread):
 
 
     def enableSSL(self):
+        global SNI
+        SNI = ""
+        def sni_callback(s, hostname, ctx):
+            global SNI
+            SNI = hostname
+            return None
         print("Enable SSL")
         try:
             sslversion = get_ssl_version(self.lsock)
@@ -155,6 +161,7 @@ class RDPProxy(threading.Thread):
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
             ctx.load_cert_chain(args.certfile, keyfile=args.keyfile, password=None)
+            ctx.sni_callback = sni_callback
             self.lsock = ctx.wrap_socket(
                 self.lsock,
                 server_side=True,
@@ -166,12 +173,14 @@ class RDPProxy(threading.Thread):
                     ctx.set_ciphers("RC4-SHA")
                     self.rsock = ctx.wrap_socket(
                         self.rsock,
+                        server_hostname=SNI,
                         do_handshake_on_connect=True,
                     )
                 except ssl.SSLError:
                     print("Not using RC4-SHA because of SSL Error:", str(e))
                     self.rsock = ctx.wrap_socket(
                         self.rsock,
+                        server_hostname=SNI,
                         do_handshake_on_connect=True,
                     )
                 except ConnectionResetError as e:
@@ -180,6 +189,7 @@ class RDPProxy(threading.Thread):
             else:
                 self.rsock = ctx.wrap_socket(
                     self.rsock,
+                    server_hostname=SNI,
                     do_handshake_on_connect=True,
                 )
         except ConnectionResetError as e:
