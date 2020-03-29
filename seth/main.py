@@ -161,7 +161,12 @@ class RDPProxy(threading.Thread):
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
             ctx.load_cert_chain(args.certfile, keyfile=args.keyfile, password=None)
-            ctx.sni_callback = sni_callback
+            try:
+                ctx.sni_callback = sni_callback
+            except AttributeError:
+                # This requires python3.7 or higher. But the feature is not
+                # that important anyway, so let's just continue.
+                pass
             self.lsock = ctx.wrap_socket(
                 self.lsock,
                 server_side=True,
