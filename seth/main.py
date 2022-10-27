@@ -157,7 +157,7 @@ class RDPProxy(threading.Thread):
         print("Enable SSL")
         try:
             sslversion = get_ssl_version(self.lsock)
-            ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+            ctx = ssl.SSLContext(sslversion)
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
             ctx.load_cert_chain(args.certfile, keyfile=args.keyfile, password=None)
