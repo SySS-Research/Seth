@@ -181,7 +181,7 @@ class RDPProxy(threading.Thread):
                         server_hostname=SNI,
                         do_handshake_on_connect=True,
                     )
-                except ssl.SSLError:
+                except ssl.SSLError as e:
                     print("Not using RC4-SHA because of SSL Error:", str(e))
                     self.rsock = ctx.wrap_socket(
                         self.rsock,
