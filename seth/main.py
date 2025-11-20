@@ -61,7 +61,7 @@ class RDPProxy(threading.Thread):
                 print("    MinProtocol = TLSv1.0")
                 os._exit(1)
             except (ConnectionResetError, OSError) as e:
-                if e.errno != 32:  # Ignorer Broken pipe
+                if e.errno != 32:  # Ignore Broken pipe
                     print("Connection closed")
                 if "creds" in self.vars:
                     stop_attack()
