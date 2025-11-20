@@ -62,7 +62,7 @@ class RDPProxy(threading.Thread):
                 os._exit(1)
             except (ConnectionResetError, OSError) as e:
                 if e.errno != 32:  # Ignorer Broken pipe
-                    print("Connexion fermée")
+                    print("Connection closed")
                 if "creds" in self.vars:
                     stop_attack()
 
